@@ -2035,4 +2035,38 @@ class Migration(migrations.Migration):
             options={"abstract": False, "base_manager_name": "objects"},
             bases=("tests.subclassselectorproxymodel",),
         ),
+        migrations.CreateModel(
+            name="NonPolymorphicParent",
+            fields=[
+                (
+                    "group_ptr",
+                    models.OneToOneField(
+                        auto_created=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        parent_link=True,
+                        primary_key=True,
+                        serialize=False,
+                        to="auth.Group",
+                    ),
+                ),
+                (
+                    "polymorphic_ctype",
+                    models.ForeignKey(
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="polymorphic_tests.nonpolymorphicparent_set+",
+                        to="contenttypes.ContentType",
+                    ),
+                ),
+                (
+                    "test",
+                    models.CharField(
+                        max_length=255, default="test_non_polymorphic_parent"
+                    ),
+                ),
+            ],
+            options={"abstract": False, "base_manager_name": "objects",},
+            bases=("auth.group", models.Model),
+        ),
     ]

@@ -2,6 +2,7 @@
 import uuid
 
 import django
+from django.contrib.auth.models import Group
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.db.models.query import QuerySet
@@ -501,3 +502,7 @@ class SubclassSelectorProxyModel(SubclassSelectorProxyBaseModel):
 
 class SubclassSelectorProxyConcreteModel(SubclassSelectorProxyModel):
     concrete_field = models.CharField(max_length=10, default="test_cf")
+
+
+class NonPolymorphicParent(PolymorphicModel, Group):
+    test = models.CharField(max_length=22, default="test_non_polymorphic_parent")

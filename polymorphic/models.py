@@ -203,7 +203,8 @@ class PolymorphicModel(with_metaclass(PolymorphicModelBase, models.Model)):
 
         def create_accessor_function_for_model(model, accessor_name):
             def accessor_function(self):
-                attr = model._base_objects.get(pk=self.pk)
+                objects = getattr(model, "_base_objects", model.objects)
+                attr = objects.get(pk=self.pk)
                 return attr
 
             return accessor_function

@@ -50,6 +50,7 @@ from polymorphic.tests.models import (
     MultiTableDerived,
     MyManager,
     MyManagerQuerySet,
+    NonPolymorphicParent,
     NonProxyChild,
     One2OneRelatingModel,
     One2OneRelatingModelDerived,
@@ -1204,3 +1205,8 @@ class PolymorphicTests(TransactionTestCase):
 
         obj.refresh_from_db(fields=["field1"])
         assert obj.field1 == "aa1"
+
+    def test_non_polymorphic_parent(self):
+
+        obj = NonPolymorphicParent.objects.create()
+        assert obj.delete()
