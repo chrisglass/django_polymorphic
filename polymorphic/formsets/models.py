@@ -228,8 +228,8 @@ class BasePolymorphicModelFormSet(BaseModelFormSet):
             form._meta.model, for_concrete_model=False
         )
         choices = [(ct.pk, ct)]  # Single choice, existing forms can't change the value.
-        form.fields["polymorphic_ctype"] = forms.ChoiceField(
-            choices=choices, initial=ct.pk, required=False, widget=forms.HiddenInput
+        form.fields["polymorphic_ctype"] = forms.TypedChoiceField(
+            choices=choices, initial=ct.pk, required=False, widget=forms.HiddenInput, coerce=int,
         )
         super(BasePolymorphicModelFormSet, self).add_fields(form, index)
 
