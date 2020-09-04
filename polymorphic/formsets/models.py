@@ -91,6 +91,7 @@ class PolymorphicFormSetChild(object):
             "labels": self.labels,
             "help_texts": self.help_texts,
             "error_messages": self.error_messages,
+            "widgets": self.widgets,
             # 'field_classes': field_classes,
         }
         defaults.update(kwargs)
