@@ -1,6 +1,11 @@
 include README.rst
 include LICENSE
-include DOCS.rst
-include CHANGES.rst
+recursive-include docs *.rst
 recursive-include polymorphic/static *.js *.css
 recursive-include polymorphic/templates *.html
+recursive-include polymorphic/locale *.po
+recursive-include example *.py
+recursive-include example *.txt
+include runtests.py
+include tox.ini
+recursive-include polymorphic/tests *.py
