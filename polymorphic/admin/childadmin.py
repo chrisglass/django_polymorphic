@@ -71,7 +71,7 @@ class PolymorphicChildModelAdmin(admin.ModelAdmin):
         return super(PolymorphicChildModelAdmin, self).get_form(request, obj, **kwargs)
 
     def get_model_perms(self, request):
-        match = resolve(request.path)
+        match = resolve(request.path_info)
 
         if (
             not self.show_in_index
