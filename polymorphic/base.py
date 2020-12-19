@@ -57,13 +57,13 @@ class PolymorphicModelBase(ModelBase):
     PolymorphicQuerySet.
     """
 
-    def __new__(self, model_name, bases, attrs):
+    def __new__(self, model_name, bases, attrs, **kwargs):
         # print; print '###', model_name, '- bases:', bases
 
         # Workaround compatibility issue with six.with_metaclass() and custom Django model metaclasses:
         if not attrs and model_name == "NewBase":
             return super(PolymorphicModelBase, self).__new__(
-                self, model_name, bases, attrs
+                self, model_name, bases, attrs, **kwargs
             )
 
         # Make sure that manager_inheritance_from_future is set, since django-polymorphic 1.x already
@@ -78,7 +78,7 @@ class PolymorphicModelBase(ModelBase):
                 )
 
         # create new model
-        new_class = self.call_superclass_new_method(model_name, bases, attrs)
+        new_class = self.call_superclass_new_method(model_name, bases, attrs, **kwargs)
 
         # check if the model fields are all allowed
         self.validate_model_fields(new_class)
@@ -100,7 +100,7 @@ class PolymorphicModelBase(ModelBase):
         return new_class
 
     @classmethod
-    def call_superclass_new_method(self, model_name, bases, attrs):
+    def call_superclass_new_method(self, model_name, bases, attrs, **kwargs):
         """call __new__ method of super class and return the newly created class.
         Also work around a limitation in Django's ModelBase."""
         # There seems to be a general limitation in Django's app_label handling
@@ -119,7 +119,7 @@ class PolymorphicModelBase(ModelBase):
         if do_app_label_workaround:
             meta.app_label = "poly_dummy_app_label"
         new_class = super(PolymorphicModelBase, self).__new__(
-            self, model_name, bases, attrs
+            self, model_name, bases, attrs, **kwargs
         )
         if do_app_label_workaround:
             del meta.app_label
