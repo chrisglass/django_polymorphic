@@ -11,7 +11,7 @@ def reset_polymorphic_ctype(*models, **filters):
     Sort the ``*models`` from base class to descending class,
     to make sure the content types are properly assigned.
 
-    Add ``preserve_existing=True`` to skip models which already
+    Add ``ignore_existing=True`` to skip models which already
     have a polymorphic content type.
     """
     using = filters.pop("using", DEFAULT_DB_ALIAS)
