@@ -4,6 +4,7 @@ import uuid
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.db.models import Case, Count, Q, When
+from django.db.models.query_utils import FilteredRelation
 from django.test import TransactionTestCase
 
 from polymorphic import compat, query_translate
@@ -1062,6 +1063,47 @@ class PolymorphicTests(TransactionTestCase):
             "PolymorphicModel: annotate()/aggregate(): ___ model lookup supported for keyword arguments only",
         ):
             Model2A.objects.aggregate(ComplexAgg("Model2B___field2"))
+
+    def test_polymorphic__filtered_relation(self):
+        """ test annotation using FilteredRelation """
+
+        blog = BlogA.objects.create(name="Ba1", info="i1 joined")
+        blog.blogentry_set.create(text="bla1 joined")
+        blog.blogentry_set.create(text="bla2 joined")
+        blog.blogentry_set.create(text="bla3 joined")
+        blog.blogentry_set.create(text="bla4")
+        blog.blogentry_set.create(text="bla5")
+        BlogA.objects.create(name="Ba2", info="i2 joined")
+        BlogA.objects.create(name="Ba3", info="i3")
+        BlogB.objects.create(name="Bb3")
+
+        result = BlogA.objects.annotate(
+            text_joined=FilteredRelation("blogentry", condition=Q(blogentry__text__contains="joined")),
+        ).aggregate(Count("text_joined"))
+        self.assertEqual(result, {"text_joined__count": 3})
+
+        result = BlogA.objects.annotate(
+            text_joined=FilteredRelation("blogentry", condition=Q(blogentry__text__contains="joined")),
+        ).aggregate(count=Count("text_joined"))
+        self.assertEqual(result, {"count": 3})
+
+        result = BlogBase.objects.annotate(
+            info_joined=FilteredRelation("bloga", condition=Q(BlogA___info__contains="joined")),
+        ).aggregate(Count("info_joined"))
+        self.assertEqual(result, {"info_joined__count": 2})
+
+        result = BlogBase.objects.annotate(
+            info_joined=FilteredRelation("bloga", condition=Q(BlogA___info__contains="joined")),
+        ).aggregate(count=Count("info_joined"))
+        self.assertEqual(result, {"count": 2})
+
+        # We should get a BlogA and a BlogB
+        result = BlogBase.objects.annotate(
+            info_joined=FilteredRelation("bloga", condition=Q(BlogA___info__contains="joined")),
+        ).filter(info_joined__isnull=True)
+        self.assertEqual(result.count(), 2)
+        self.assertIsInstance(result.first(), BlogA)
+        self.assertIsInstance(result.last(), BlogB)
 
     def test_polymorphic__expressions(self):
 
