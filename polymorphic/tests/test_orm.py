@@ -965,6 +965,29 @@ class PolymorphicTests(TransactionTestCase):
         # test that we can delete the object
         t.delete()
 
+    def test_polymorphic__accessor_caching(self):
+        blog_a = BlogA.objects.create(name="blog")
+
+        blog_base = BlogBase.objects.non_polymorphic().get(id=blog_a.id)
+        blog_a = BlogA.objects.get(id=blog_a.id)
+
+        # test reverse accessor & check that we get back cached object on repeated access
+        self.assertEqual(blog_base.bloga, blog_a)
+        self.assertIs(blog_base.bloga, blog_base.bloga)
+        cached_blog_a = blog_base.bloga
+
+        # test forward accessor & check that we get back cached object on repeated access
+        self.assertEqual(blog_a.blogbase_ptr, blog_base)
+        self.assertIs(blog_a.blogbase_ptr, blog_a.blogbase_ptr)
+        cached_blog_base = blog_a.blogbase_ptr
+
+        # check that refresh_from_db correctly clears cached related objects
+        blog_base.refresh_from_db()
+        blog_a.refresh_from_db()
+
+        self.assertIsNot(cached_blog_a, blog_base.bloga)
+        self.assertIsNot(cached_blog_base, blog_a.blogbase_ptr)
+
     def test_polymorphic__aggregate(self):
         """test ModelX___field syntax on aggregate (should work for annotate either)"""
 
