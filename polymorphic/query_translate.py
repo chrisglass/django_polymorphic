@@ -69,7 +69,7 @@ def translate_polymorphic_Q_object(queryset_model, potential_q_object, using=DEF
                 )
                 if new_expr:
                     node.children[i] = new_expr
-            else:
+            elif isinstance(child, models.Q):
                 # this Q object child is another Q object, recursively process this as well
                 tree_node_correct_field_specs(my_model, child)
 
