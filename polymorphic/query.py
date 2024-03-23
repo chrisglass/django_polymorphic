@@ -56,6 +56,9 @@ class VanillaRelatedPopulator(RelatedPopulator):
         super().__init__(klass_info, select, db)
         self.field = klass_info["field"]
         self.reverse = klass_info["reverse"]
+        # replace replated populator with possibly a polymorphic version
+        # this is needed for relation across a non poly model
+        self.related_populators = get_related_populators(klass_info, select, self.db)
 
     def build_related(self, row, from_obj, *_):
         self.populate(row, from_obj)
@@ -158,7 +161,9 @@ class RelatedPolymorphicPopulator:
             self.remote_setter(obj, from_obj)
 
     def post_build_modify(self, base_object, from_obj, post_actions, populate_fn):
-        if base_object.polymorphic_ctype_id == self.model_class_id:
+        if not hasattr(base_object, "polymorphic_ctype_id"):
+            populate_fn(base_object)
+        elif base_object.polymorphic_ctype_id == self.model_class_id:
             # Real class is exactly the same as base class, go straight to results
             populate_fn(base_object)
         else:
@@ -242,10 +247,14 @@ def get_related_populators(klass_info, select, db):
     related_klass_infos = klass_info.get("related_klass_infos", [])
     for rel_klass_info in related_klass_infos:
         model = rel_klass_info["model"]
+        rel_cls = VanillaRelatedPopulator(rel_klass_info, select, db)
         if issubclass(model, PolymorphicModel):
             rel_cls = RelatedPolymorphicPopulator(rel_klass_info, select, db)
         else:
-            rel_cls = VanillaRelatedPopulator(rel_klass_info, select, db)
+            for col, *_ in select:
+                if issubclass(col.target.model, PolymorphicModel):
+                    rel_cls = RelatedPolymorphicPopulator(rel_klass_info, select, db)
+                    break
         iterators.append(rel_cls)
     return iterators
 
