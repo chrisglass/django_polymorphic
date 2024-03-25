@@ -229,7 +229,7 @@ class RelatedPolymorphicPopulator:
 
         if isinstance(obj, model_target_cls):
             # We only want to pivot onto a field from a different object, ie not a parent/child
-            #  relationship as this will break the cache and other object relationships
+            # relationship as this will break the cache and other object
             if not original._meta.get_path_to_parent(from_obj._meta.model):
                 self.local_setter(from_obj, obj)
                 if obj is not None:
@@ -294,9 +294,11 @@ class PolymorphicModelIterable(ModelIterable):
                 related_objs,
                 operator.attrgetter(
                     *[
-                        field.attname
-                        if from_field == "self"
-                        else queryset.model._meta.get_field(from_field).attname
+                        (
+                            field.attname
+                            if from_field == "self"
+                            else queryset.model._meta.get_field(from_field).attname
+                        )
                         for from_field in field.from_fields
                     ]
                 ),
@@ -599,9 +601,9 @@ class PolymorphicQuerySet(PolymorphicQuerySetMixin, QuerySet):
     def order_by(self, *field_names):
         """translate the field paths in the args, then call vanilla order_by."""
         field_names = [
-            translate_polymorphic_field_path(self.model, a)
-            if isinstance(a, str)
-            else a  # allow expressions to pass unchanged
+            (
+                translate_polymorphic_field_path(self.model, a) if isinstance(a, str) else a
+            )  # allow expressions to pass unchanged
             for a in field_names
         ]
         return super().order_by(*field_names)
