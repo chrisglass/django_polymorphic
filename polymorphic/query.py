@@ -3,18 +3,24 @@ QuerySet for PolymorphicModel
 """
 
 import copy
+import functools
+import operator
 from collections import defaultdict
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import FilteredRelation
+from django.db.models.constants import LOOKUP_SEP
 from django.db.models.query import ModelIterable, Q, QuerySet
-
+from django.db.models.query import BaseIterable, RelatedPopulator
 from .query_translate import (
     translate_polymorphic_field_path,
     translate_polymorphic_filter_definitions_in_args,
     translate_polymorphic_filter_definitions_in_kwargs,
     translate_polymorphic_Q_object,
+    _get_query_related_name,
+    _get_all_sub_models,
+    _create_base_path,
 )
 
 # chunk-size: maximum number of objects requested per db-request
@@ -22,51 +28,397 @@ from .query_translate import (
 Polymorphic_QuerySet_objects_per_request = 100
 
 
+def merge_dicts(primary, secondary):
+    """Deep merge two dicts
+
+    Items from the primary dict are preserved in preference to those on the
+    secondary dict"""
+
+    for k, v in secondary.items():
+        if k in primary:
+            primary[k] = merge_dicts(primary[k], v)
+        else:
+            primary[k] = copy.deepcopy(v)
+    return primary
+
+
+def search_object_cache(obj, source_model, target_model):
+    for search_part in _create_base_path(source_model, target_model).split("__"):
+        try:
+            obj = obj._state.fields_cache[search_part]
+        except KeyError:
+            return
+    return obj
+
+
+class VanillaRelatedPopulator(RelatedPopulator):
+    def __init__(self, klass_info, select, db):
+        super().__init__(klass_info, select, db)
+        self.field = klass_info["field"]
+        self.reverse = klass_info["reverse"]
+
+    def build_related(self, row, from_obj, *_):
+        self.populate(row, from_obj)
+
+
+class RelatedPolymorphicPopulator:
+    """
+    RelatedPopulator is used for select_related() object instantiation.
+    The idea is that each select_related() model will be populated by a
+    different RelatedPopulator instance. The RelatedPopulator instances get
+    klass_info and select (computed in SQLCompiler) plus the used db as
+    input for initialization. That data is used to compute which columns
+    to use, how to instantiate the model, and how to populate the links
+    between the objects.
+    The actual creation of the objects is done in populate() method. This
+    method gets row and from_obj as input and populates the select_related()
+    model instance.
+    """
+
+    def __init__(self, klass_info, select, db):
+        self.db = db
+        # Pre-compute needed attributes. The attributes are:
+        #  - model_cls: the possibly deferred model class to instantiate
+        #  - either:
+        #    - cols_start, cols_end: usually the columns in the row are
+        #      in the same order model_cls.__init__ expects them, so we
+        #      can instantiate by model_cls(*row[cols_start:cols_end])
+        #    - reorder_for_init: When select_related descends to a child
+        #      class, then we want to reuse the already selected parent
+        #      data. However, in this case the parent data isn't necessarily
+        #      in the same order that Model.__init__ expects it to be, so
+        #      we have to reorder the parent data. The reorder_for_init
+        #      attribute contains a function used to reorder the field data
+        #      in the order __init__ expects it.
+        #  - pk_idx: the index of the primary key field in the reordered
+        #    model data. Used to check if a related object exists at all.
+        #  - init_list: the field attnames fetched from the database. For
+        #    deferred models this isn't the same as all attnames of the
+        #    model's fields.
+        #  - related_populators: a list of RelatedPopulator instances if
+        #    select_related() descends to related models from this model.
+        #  - local_setter, remote_setter: Methods to set cached values on
+        #    the object being populated and on the remote object. Usually
+        #    these are Field.set_cached_value() methods.
+        select_fields = klass_info["select_fields"]
+        from_parent = klass_info["from_parent"]
+        if not from_parent:
+            self.cols_start = select_fields[0]
+            self.cols_end = select_fields[-1] + 1
+            self.init_list = [f[0].target.attname for f in select[self.cols_start : self.cols_end]]
+            self.reorder_for_init = None
+        else:
+            attname_indexes = {select[idx][0].target.attname: idx for idx in select_fields}
+            model_init_attnames = (f.attname for f in klass_info["model"]._meta.concrete_fields)
+            self.init_list = [
+                attname for attname in model_init_attnames if attname in attname_indexes
+            ]
+            self.reorder_for_init = operator.itemgetter(
+                *[attname_indexes[attname] for attname in self.init_list]
+            )
+
+        self.model_cls = klass_info["model"]
+        self.pk_idx = self.init_list.index(self.model_cls._meta.pk.attname)
+        self.related_populators = get_related_populators(klass_info, select, self.db)
+        self.local_setter = klass_info["local_setter"]
+        self.remote_setter = klass_info["remote_setter"]
+        self.field = klass_info["field"]
+        self.reverse = klass_info["reverse"]
+        self.content_type_manager = ContentType.objects.db_manager(self.db)
+        self.model_class_id = self.content_type_manager.get_for_model(
+            self.model_cls, for_concrete_model=False
+        ).pk
+        self.concrete_model_class_id = self.content_type_manager.get_for_model(
+            self.model_cls, for_concrete_model=True
+        ).pk
+
+    def build_related(self, row, from_obj, post_actions):
+        if self.reorder_for_init:
+            obj_data = self.reorder_for_init(row)
+        else:
+            obj_data = row[self.cols_start : self.cols_end]
+
+        if obj_data[self.pk_idx] is None:
+            obj = None
+        else:
+            obj = self.model_cls.from_db(self.db, self.init_list, obj_data)
+            self.post_build_modify(
+                obj,
+                from_obj,
+                post_actions,
+                functools.partial(self._populate, row, from_obj, post_actions),
+            )
+
+    def _populate(self, row, from_obj, post_actions, obj):
+        for rel_iter in self.related_populators:
+            rel_iter.build_related(row, obj, post_actions)
+
+        self.local_setter(from_obj, obj)
+        if obj is not None:
+            self.remote_setter(obj, from_obj)
+
+    def post_build_modify(self, base_object, from_obj, post_actions, populate_fn):
+        if base_object.polymorphic_ctype_id == self.model_class_id:
+            # Real class is exactly the same as base class, go straight to results
+            populate_fn(base_object)
+        else:
+            real_concrete_class = base_object.get_real_instance_class()
+            real_concrete_class_id = base_object.get_real_concrete_instance_class_id()
+
+            if real_concrete_class_id is None:
+                # Dealing with a stale content type
+                populate_fn(None)
+                return False
+            elif real_concrete_class_id == self.concrete_model_class_id:
+                # Real and base classes share the same concrete ancestor,
+                # upcast it and put it in the results
+                populate_fn(transmogrify(real_concrete_class, base_object))
+                return False
+            else:
+                # This model has a concrete derived class: either track it for bulk
+                # retrieval or if it is already fetched as part of a select_related
+                # enable pivoting to that object
+                real_concrete_class = self.content_type_manager.get_for_id(
+                    real_concrete_class_id
+                ).model_class()
+                populate_fn(base_object)
+                post_actions.append(
+                    (
+                        functools.partial(
+                            self.pivot_onto_cached_subclass,
+                            from_obj,
+                            base_object,
+                            real_concrete_class,
+                        ),
+                        populate_fn,
+                    )
+                )
+
+    def pivot_onto_cached_subclass(self, from_obj, obj, model_target_cls):
+        """Pivot to final polymorphic class.
+
+        Pivot the object created from the base query onto the true polymorphic
+        instance, we need to ensure that this is only done on objects that are
+        from non parent-child type relationships.
+
+        If we cannot pivot we return info to be used in the PolymorphicModelIterable
+        to ensure the correct model loaded from the additional bulk queries
+        """
+
+        original = obj
+        parents = model_target_cls()._get_inheritance_relation_fields_and_models()
+        for cls in reversed(model_target_cls.mro()[: -len(self.model_cls.mro())]):
+            for rel_iter in self.related_populators:
+                if not isinstance(
+                    rel_iter, (VanillaRelatedPopulator, RelatedPolymorphicPopulator)
+                ):
+                    continue
+                if rel_iter.reverse and rel_iter.model_cls is cls:
+                    if rel_iter.field.name in parents.keys():
+                        obj = getattr(obj, rel_iter.field.remote_field.name)
+
+        if not isinstance(obj, model_target_cls):
+            # This allow pivoting of object that are descendants of the original field
+            if not original._meta.get_path_to_parent(from_obj._meta.model):
+                obj = search_object_cache(original, original._meta.model, model_target_cls)
+
+        if isinstance(obj, model_target_cls):
+            # We only want to pivot onto a field from a different object, ie not a parent/child
+            #  relationship as this will break the cache and other object relationships
+            if not original._meta.get_path_to_parent(from_obj._meta.model):
+                self.local_setter(from_obj, obj)
+                if obj is not None:
+                    self.remote_setter(obj, from_obj)
+            return None, None
+
+        pk_name = self.model_cls.polymorphic_primary_key_name
+        return model_target_cls, (getattr(original, pk_name), self.field.name)
+
+
+def get_related_populators(klass_info, select, db):
+    from .models import PolymorphicModel
+
+    iterators = []
+    related_klass_infos = klass_info.get("related_klass_infos", [])
+    for rel_klass_info in related_klass_infos:
+        model = rel_klass_info["model"]
+        if issubclass(model, PolymorphicModel):
+            rel_cls = RelatedPolymorphicPopulator(rel_klass_info, select, db)
+        else:
+            rel_cls = VanillaRelatedPopulator(rel_klass_info, select, db)
+        iterators.append(rel_cls)
+    return iterators
+
+
 class PolymorphicModelIterable(ModelIterable):
     """
     ModelIterable for PolymorphicModel
 
     Yields real instances if qs.polymorphic_disabled is False,
-    otherwise acts like a regular ModelIterable.
+    otherwise acts like a regular ModelIterable. We inherit from
+    ModelIterable non base BaseIterable even though we completely
+    replace it, but this allows Django test in Prefetch to work
     """
 
     def __iter__(self):
-        base_iter = super().__iter__()
-        if self.queryset.polymorphic_disabled:
-            return base_iter
-        return self._polymorphic_iterator(base_iter)
-
-    def _polymorphic_iterator(self, base_iter):
-        """
-        Here we do the same as::
-
-            real_results = queryset._get_real_instances(list(base_iter))
-            for o in real_results: yield o
-
-        but it requests the objects in chunks from the database,
-        with Polymorphic_QuerySet_objects_per_request per chunk
-        """
+        queryset = self.queryset
+        db = queryset.db
+        compiler = queryset.query.get_compiler(using=db)
+        # Execute the query. This will also fill compiler.select, klass_info,
+        # and annotations.
+        results = compiler.execute_sql(
+            chunked_fetch=self.chunked_fetch, chunk_size=self.chunk_size
+        )
+        select, klass_info, annotation_col_map = (
+            compiler.select,
+            compiler.klass_info,
+            compiler.annotation_col_map,
+        )
+        model_cls = klass_info["model"]
+        select_fields = klass_info["select_fields"]
+        model_fields_start, model_fields_end = select_fields[0], select_fields[-1] + 1
+        init_list = [f[0].target.attname for f in select[model_fields_start:model_fields_end]]
+        related_populators = get_related_populators(klass_info, select, db)
+        known_related_objects = [
+            (
+                field,
+                related_objs,
+                operator.attrgetter(
+                    *[
+                        field.attname
+                        if from_field == "self"
+                        else queryset.model._meta.get_field(from_field).attname
+                        for from_field in field.from_fields
+                    ]
+                ),
+            )
+            for field, related_objs in queryset._known_related_objects.items()
+        ]
+        base_iter = compiler.results_iter(results)
         while True:
+            result_objects = []
             base_result_objects = []
             reached_end = False
 
             # Make sure the base iterator is read in chunks instead of
             # reading it completely, in case our caller read only a few objects.
+            post_actions = list()
             for i in range(Polymorphic_QuerySet_objects_per_request):
+                # dict contains one entry per unique model type occurring in result,
+                # in the format idlist_per_model[modelclass]=[list-of-object-ids]
                 try:
-                    o = next(base_iter)
-                    base_result_objects.append(o)
+                    row = next(base_iter)
+                    obj = model_cls.from_db(
+                        db, init_list, row[model_fields_start:model_fields_end]
+                    )
+                    for rel_populator in related_populators:
+                        rel_populator.build_related(row, obj, post_actions)
+                    base_result_objects.append([row, obj])
                 except StopIteration:
                     reached_end = True
                     break
 
-            real_results = self.queryset._get_real_instances(base_result_objects)
+            if not self.queryset.polymorphic_disabled:
+                self.fetch_polymorphic(post_actions, base_result_objects)
 
-            for o in real_results:
+            for row, obj in base_result_objects:
+                if annotation_col_map:
+                    for attr_name, col_pos in annotation_col_map.items():
+                        setattr(obj, attr_name, row[col_pos])
+
+                # Add the known related objects to the model.
+                for field, rel_objs, rel_getter in known_related_objects:
+                    # Avoid overwriting objects loaded by, e.g., select_related().
+                    if field.is_cached(obj):
+                        continue
+                    rel_obj_id = rel_getter(obj)
+                    try:
+                        rel_obj = rel_objs[rel_obj_id]
+                    except KeyError:
+                        pass  # May happen in qs1 | qs2 scenarios.
+                    else:
+                        setattr(obj, field.name, rel_obj)
+                result_objects.append(obj)
+
+            if not self.queryset.polymorphic_disabled:
+                result_objects = self.queryset._get_real_instances(result_objects)
+
+            for o in result_objects:
                 yield o
 
             if reached_end:
                 return
+
+    def apply_select_related(self, qs, relations):
+        if self.queryset.query.select_related is True:
+            return qs.select_related()
+
+        model_name = qs.model.__name__.lower()
+        if isinstance(self.queryset.query.select_related, dict):
+            select_related = {}
+            if isinstance(qs.query.select_related, dict):
+                select_related = qs.query.select_related
+            for k, v in self.queryset.query.select_related.items():
+                if k in relations:
+                    if not isinstance(select_related, dict):
+                        select_related = {}
+                    if isinstance(v, dict):
+                        if model_name in v:
+                            select_related = merge_dicts(
+                                select_related, v[model_name])
+                        else:
+                            for field in qs.model._meta.fields:
+                                if field.name in v:
+                                    select_related = merge_dicts(
+                                        select_related, v[field.name])
+                    else:
+                        select_related = merge_dicts(select_related, v)
+            qs.query.select_related = select_related
+        return qs
+
+    def fetch_polymorphic(self, post_actions, base_result_objects):
+        update_fn_per_model = defaultdict(list)
+        idlist_per_model = defaultdict(list)
+
+        for action, populate_fn in post_actions:
+            target_class, pk_info = action()
+            if target_class:
+                pk, name = pk_info
+                idlist_per_model[target_class].append((pk, name))
+                update_fn_per_model[target_class].append((populate_fn, pk))
+
+        # For each model in "idlist_per_model" request its objects (the real model)
+        # from the db and store them in results[].
+        # Then we copy the annotate fields from the base objects to the real objects.
+        # Then we copy the extra() select fields from the base objects to the real objects.
+        # TODO: defer(), only(): support for these would be around here
+        for real_concrete_class, data in idlist_per_model.items():
+            idlist, names = zip(*data)
+            updates = update_fn_per_model[real_concrete_class]
+            pk_name = real_concrete_class.polymorphic_primary_key_name
+            real_objects = real_concrete_class._base_objects.db_manager(self.queryset.db).filter(
+                **{("%s__in" % pk_name): idlist}
+            )
+
+            real_objects = self.apply_select_related(real_objects, set(names))
+            real_objects_dict = {
+                getattr(real_object, pk_name): real_object for real_object in real_objects
+            }
+
+            for populate_fn, o_pk in updates:
+                real_object = real_objects_dict.get(o_pk)
+                if real_object is None:
+                    continue
+
+                # need shallow copy to avoid duplication in caches (see PR #353)
+                real_object = copy.copy(real_object)
+                real_class = real_object.get_real_instance_class()
+
+                # If the real class is a proxy, upcast it
+                if real_class != real_concrete_class:
+                    real_object = transmogrify(real_class, real_object)
+
+                populate_fn(real_object)
 
 
 def transmogrify(cls, obj):
@@ -89,7 +441,64 @@ def transmogrify(cls, obj):
 # PolymorphicQuerySet
 
 
-class PolymorphicQuerySet(QuerySet):
+class PolymorphicQuerySetMixin(QuerySet):
+    def select_related(self, *fields):
+        if fields == (None,) or not len(fields):
+            return super().select_related(*fields)
+        field_with_poly = list(self.convert_related_fieldnames(fields))
+        return super().select_related(*field_with_poly)
+
+    def _convert_field_name_part(self, field_parts, model):
+        """
+        recursively convert a fieldname into (model, filedname)
+        """
+        field = None
+        part = field_parts[0]
+        next_parts = field_parts[1:]
+        field_path = []
+        rel_model = None
+        try:
+            field = model._meta.get_field(part)
+            field_path = [part]
+            yield field_path
+
+            if field.is_relation:
+                rel_model = field.related_model
+                if next_parts:
+                    self._convert_field_name_part(next_parts, rel_model)
+            else:
+                rel_model = model
+
+        except FieldDoesNotExist:
+            submodels = _get_all_sub_models(model)
+            rel_model = submodels.get(part, None)
+            field_path = list(_create_base_path(model, rel_model).split("__"))
+            for field_part_idx in range(0, len(field_path)):
+                yield field_path[0 : 1 + field_part_idx]
+
+        if next_parts:
+            child_selectors = self._convert_field_name_part(next_parts, rel_model)
+            for selector in child_selectors:
+                all_field_path = field_path + selector
+                for field_part_idx in range(0, len(all_field_path)):
+                    yield all_field_path[0 : 1 + field_part_idx]
+
+    def convert_related_fieldnames(self, fields, opts=None):
+        """
+        convert the field name which may contain polymorphic models names into
+        raw filed names that can be used with django select_related and
+        prefetch_related.
+        """
+        if not opts:
+            opts = self.model
+        for field_name in fields:
+            field_parts = field_name.split(LOOKUP_SEP)
+            selectors = self._convert_field_name_part(field_parts, opts)
+            for selector in selectors:
+                yield "__".join(selector)
+
+
+class PolymorphicQuerySet(PolymorphicQuerySetMixin, QuerySet):
     """
     QuerySet for PolymorphicModel
 
@@ -387,22 +796,37 @@ class PolymorphicQuerySet(QuerySet):
                     real_concrete_class = content_type_manager.get_for_id(
                         real_concrete_class_id
                     ).model_class()
-                    idlist_per_model[real_concrete_class].append(getattr(base_object, pk_name))
-                    indexlist_per_model[real_concrete_class].append((i, len(resultlist)))
-                    resultlist.append(None)
+
+                    cached_obj = search_object_cache(base_object, self.model, real_concrete_class)
+                    if cached_obj:
+                        resultlist.append(cached_obj)
+                    else:
+                        idlist_per_model[real_concrete_class].append(getattr(base_object, pk_name))
+                        indexlist_per_model[real_concrete_class].append((i, len(resultlist)))
+                        resultlist.append(None)
 
         # For each model in "idlist_per_model" request its objects (the real model)
         # from the db and store them in results[].
         # Then we copy the annotate fields from the base objects to the real objects.
         # Then we copy the extra() select fields from the base objects to the real objects.
         # TODO: defer(), only(): support for these would be around here
+        # Also see PolymorphicModelIterable.fetch_polymorphic
+
+        filter_relations = [
+            _get_query_related_name(mdl_cls)
+            for mdl_cls in _get_all_sub_models(self.model).values()
+        ]
+
         for real_concrete_class, idlist in idlist_per_model.items():
             indices = indexlist_per_model[real_concrete_class]
             real_objects = real_concrete_class._base_objects.db_manager(self.db).filter(
                 **{(f"{pk_name}__in"): idlist}
             )
             # copy select related configuration to new qs
-            real_objects.query.select_related = self.query.select_related
+            current_relation = real_objects.model.__name__.lower()
+            real_objects = self.apply_select_related(
+                real_objects, current_relation, filter_relations
+            )
 
             # Copy deferred fields configuration to the new queryset
             deferred_loading_fields = []
@@ -484,6 +908,37 @@ class PolymorphicQuerySet(QuerySet):
 
         return resultlist
 
+    def apply_select_related(self, qs, relation, filtered):
+        if self.query.select_related is True:
+            return qs.select_related()
+
+        model_name = qs.model.__name__.lower()
+        if isinstance(self.query.select_related, dict):
+            select_related = {}
+            if isinstance(qs.query.select_related, dict):
+                select_related = qs.query.select_related
+            for k, v in self.query.select_related.items():
+                if k in filtered and k != relation:
+                    continue
+                else:
+                    if not isinstance(select_related, dict):
+                        select_related = {}
+                    if k == relation:
+                        if isinstance(v, dict):
+                            if model_name in v:
+                                select_related = merge_dicts(select_related, v[model_name])
+                            else:
+                                for field in qs.model._meta.fields:
+                                    if field.name in v:
+                                        select_related = merge_dicts(select_related, v[field.name])
+                        else:
+                            select_related = merge_dicts(select_related, v)
+                    else:
+                        select_related[k] = v
+
+            qs.query.select_related = select_related
+        return qs
+
     def __repr__(self, *args, **kwargs):
         if self.model.polymorphic_query_multiline_output:
             result = ",\n  ".join(repr(o) for o in self.all())
@@ -516,3 +971,27 @@ class PolymorphicQuerySet(QuerySet):
             return olist
         clist = PolymorphicQuerySet._p_list_class(olist)
         return clist
+
+
+###################################################################################
+# PolymorphicRelatedQuerySet
+
+
+class PolymorphicRelatedQuerySetMixin(PolymorphicQuerySetMixin):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._iterable_class = PolymorphicModelIterable
+        self.polymorphic_disabled = False
+
+    def _clone(self, *args, **kwargs):
+        # Django's _clone only copies its own variables, so we need to copy ours here
+        new = super()._clone(*args, **kwargs)
+        new.polymorphic_disabled = self.polymorphic_disabled
+        return new
+
+    def _get_real_instances(self, base_result_objects):
+        return base_result_objects
+
+
+class PolymorphicRelatedQuerySet(PolymorphicRelatedQuerySetMixin, QuerySet):
+    pass

@@ -8,7 +8,6 @@ import polymorphic.showfields
 
 
 class Migration(migrations.Migration):
-
     initial = True
 
     dependencies = [("contenttypes", "0002_remove_content_type_name")]
@@ -2063,5 +2062,269 @@ class Migration(migrations.Migration):
                 "base_manager_name": "objects",
             },
             bases=("auth.group", models.Model),
+        ),
+        migrations.CreateModel(
+            name="NonSymRelationBase",
+            fields=[
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("field_base", models.CharField(max_length=10)),
+                (
+                    "fk",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="relationbase_set",
+                        to="tests.nonsymrelationbase",
+                    ),
+                ),
+                ("m2m", models.ManyToManyField(to="tests.nonsymrelationbase")),
+                (
+                    "polymorphic_ctype",
+                    models.ForeignKey(
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="polymorphic_%(app_label)s.%(class)s_set+",
+                        to="contenttypes.contenttype",
+                    ),
+                ),
+            ],
+            options={
+                "abstract": False,
+                "base_manager_name": "objects",
+            },
+        ),
+        migrations.CreateModel(
+            name="ParentModel",
+            fields=[
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("name", models.CharField(max_length=10)),
+                (
+                    "polymorphic_ctype",
+                    models.ForeignKey(
+                        editable=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="polymorphic_%(app_label)s.%(class)s_set+",
+                        to="contenttypes.contenttype",
+                    ),
+                ),
+            ],
+            options={
+                "abstract": False,
+                "base_manager_name": "objects",
+            },
+        ),
+        migrations.CreateModel(
+            name="PlainModel",
+            fields=[
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "relation",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE, to="tests.parentmodel"
+                    ),
+                ),
+            ],
+        ),
+        migrations.CreateModel(
+            name="PlainModelWithM2M",
+            fields=[
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                ("field1", models.CharField(max_length=10)),
+                ("m2m", models.ManyToManyField(to="tests.parentmodel")),
+            ],
+        ),
+        migrations.CreateModel(
+            name="AltChildModel",
+            fields=[
+                (
+                    "parentmodel_ptr",
+                    models.OneToOneField(
+                        auto_created=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        parent_link=True,
+                        primary_key=True,
+                        serialize=False,
+                        to="tests.parentmodel",
+                    ),
+                ),
+                ("other_name", models.CharField(max_length=10)),
+                (
+                    "link_on_altchild",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="tests.plaina",
+                    ),
+                ),
+            ],
+            options={
+                "abstract": False,
+                "base_manager_name": "objects",
+            },
+            bases=("tests.parentmodel",),
+        ),
+        migrations.CreateModel(
+            name="ChildModel",
+            fields=[
+                (
+                    "parentmodel_ptr",
+                    models.OneToOneField(
+                        auto_created=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        parent_link=True,
+                        primary_key=True,
+                        serialize=False,
+                        to="tests.parentmodel",
+                    ),
+                ),
+                ("other_name", models.CharField(max_length=10)),
+                (
+                    "link_on_child",
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="tests.modelextraexternal",
+                    ),
+                ),
+            ],
+            options={
+                "abstract": False,
+                "base_manager_name": "objects",
+            },
+            bases=("tests.parentmodel",),
+        ),
+        migrations.CreateModel(
+            name="NonSymRelationA",
+            fields=[
+                (
+                    "nonsymrelationbase_ptr",
+                    models.OneToOneField(
+                        auto_created=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        parent_link=True,
+                        primary_key=True,
+                        serialize=False,
+                        to="tests.nonsymrelationbase",
+                    ),
+                ),
+                ("field_a", models.CharField(max_length=10)),
+            ],
+            options={
+                "abstract": False,
+                "base_manager_name": "objects",
+            },
+            bases=("tests.nonsymrelationbase",),
+        ),
+        migrations.CreateModel(
+            name="NonSymRelationB",
+            fields=[
+                (
+                    "nonsymrelationbase_ptr",
+                    models.OneToOneField(
+                        auto_created=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        parent_link=True,
+                        primary_key=True,
+                        serialize=False,
+                        to="tests.nonsymrelationbase",
+                    ),
+                ),
+                ("field_b", models.CharField(max_length=10)),
+            ],
+            options={
+                "abstract": False,
+                "base_manager_name": "objects",
+            },
+            bases=("tests.nonsymrelationbase",),
+        ),
+        migrations.CreateModel(
+            name="NonSymRelationBC",
+            fields=[
+                (
+                    "nonsymrelationbase_ptr",
+                    models.OneToOneField(
+                        auto_created=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        parent_link=True,
+                        primary_key=True,
+                        serialize=False,
+                        to="tests.nonsymrelationbase",
+                    ),
+                ),
+                ("field_c", models.CharField(max_length=10)),
+            ],
+            options={
+                "abstract": False,
+                "base_manager_name": "objects",
+            },
+            bases=("tests.nonsymrelationbase",),
+        ),
+        migrations.CreateModel(
+            name="AltChildAsBaseModel",
+            fields=[
+                (
+                    "altchildmodel_ptr",
+                    models.OneToOneField(
+                        auto_created=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        parent_link=True,
+                        primary_key=True,
+                        serialize=False,
+                        to="tests.altchildmodel",
+                    ),
+                ),
+                ("more_name", models.CharField(max_length=10)),
+            ],
+            options={
+                "abstract": False,
+                "base_manager_name": "objects",
+            },
+            bases=("tests.altchildmodel",),
+        ),
+        migrations.CreateModel(
+            name="AltChildWithM2MModel",
+            fields=[
+                (
+                    "altchildmodel_ptr",
+                    models.OneToOneField(
+                        auto_created=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        parent_link=True,
+                        primary_key=True,
+                        serialize=False,
+                        to="tests.altchildmodel",
+                    ),
+                ),
+                ("m2m", models.ManyToManyField(to="tests.plaina")),
+            ],
+            options={
+                "abstract": False,
+                "base_manager_name": "objects",
+            },
+            bases=("tests.altchildmodel",),
         ),
     ]

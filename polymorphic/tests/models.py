@@ -8,7 +8,11 @@ from django.db.models.query import QuerySet
 
 from polymorphic.managers import PolymorphicManager
 from polymorphic.models import PolymorphicModel
-from polymorphic.query import PolymorphicQuerySet
+from polymorphic.query import (
+    PolymorphicQuerySet,
+    PolymorphicRelatedQuerySetMixin,
+    PolymorphicRelatedQuerySet,
+)
 from polymorphic.showfields import ShowFieldContent, ShowFieldType, ShowFieldTypeAndContent
 
 
@@ -348,6 +352,8 @@ class NonProxyChild(ProxyBase):
 # base -> proxy -> real models
 
 
+
+
 class ProxiedBase(ShowFieldTypeAndContent, PolymorphicModel):
     name = models.CharField(max_length=10)
 
@@ -496,3 +502,64 @@ class SubclassSelectorProxyConcreteModel(SubclassSelectorProxyModel):
 
 class NonPolymorphicParent(PolymorphicModel, Group):
     test = models.CharField(max_length=22, default="test_non_polymorphic_parent")
+
+
+class NonSymRelationBase(PolymorphicModel):
+    field_base = models.CharField(max_length=10)
+    fk = models.ForeignKey(
+        "self", on_delete=models.CASCADE, null=True, related_name="relationbase_set"
+    )
+    m2m = models.ManyToManyField("self", symmetrical=False)
+
+
+class NonSymRelationA(NonSymRelationBase):
+    field_a = models.CharField(max_length=10)
+
+
+class NonSymRelationB(NonSymRelationBase):
+    field_b = models.CharField(max_length=10)
+
+
+class NonSymRelationBC(NonSymRelationBase):
+    field_c = models.CharField(max_length=10)
+
+
+class CustomPolySupportingQuerySet(PolymorphicRelatedQuerySetMixin, models.QuerySet):
+    pass
+
+
+class ParentModel(PolymorphicModel):
+    name = models.CharField(max_length=10)
+
+
+class ChildModel(ParentModel):
+    other_name = models.CharField(max_length=10)
+    link_on_child = models.ForeignKey(
+        ModelExtraExternal, on_delete=models.CASCADE, null=True, related_name="+"
+    )
+
+
+class AltChildModel(ParentModel):
+    other_name = models.CharField(max_length=10)
+    link_on_altchild = models.ForeignKey(
+        PlainA, on_delete=models.CASCADE, null=True, related_name="+"
+    )
+
+
+class AltChildAsBaseModel(AltChildModel):
+    more_name = models.CharField(max_length=10)
+
+
+class PlainModel(models.Model):
+    relation = models.ForeignKey(ParentModel, on_delete=models.CASCADE)
+    objects = models.Manager.from_queryset(PolymorphicRelatedQuerySet)()
+
+
+class PlainModelWithM2M(models.Model):
+    field1 = models.CharField(max_length=10)
+    m2m = models.ManyToManyField(ParentModel)
+    objects = models.Manager.from_queryset(PolymorphicRelatedQuerySet)()
+
+
+class AltChildWithM2MModel(AltChildModel):
+    m2m = models.ManyToManyField(PlainA)

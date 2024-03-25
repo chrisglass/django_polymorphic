@@ -2,16 +2,20 @@ import pytest
 import re
 import uuid
 
+from unittest import expectedFailure
 from django.contrib.contenttypes.models import ContentType
 from django.db import models
-from django.db.models import Case, Count, FilteredRelation, Q, When
+from django.db.models import Case, Count, FilteredRelation, Q, When, F, Prefetch
+
 from django.db.utils import IntegrityError
 from django.test import TransactionTestCase
-
-from polymorphic import query_translate
+from polymorphic import compat, query_translate
 from polymorphic.managers import PolymorphicManager
 from polymorphic.models import PolymorphicTypeInvalid, PolymorphicTypeUndefined
 from polymorphic.tests.models import (
+    AltChildAsBaseModel,
+    AltChildModel,
+    AltChildWithM2MModel,
     ArtProject,
     Base,
     BlogA,
@@ -19,6 +23,7 @@ from polymorphic.tests.models import (
     BlogBase,
     BlogEntry,
     BlogEntry_limit_choices_to,
+    ChildModel,
     ChildModelWithManager,
     CustomPkBase,
     CustomPkInherit,
@@ -54,13 +59,20 @@ from polymorphic.tests.models import (
     MyManagerQuerySet,
     NonPolymorphicParent,
     NonProxyChild,
+    NonSymRelationA,
+    NonSymRelationB,
+    NonSymRelationBase,
+    NonSymRelationBC,
     One2OneRelatingModel,
     One2OneRelatingModelDerived,
+    ParentModel,
     ParentModelWithManager,
     PlainA,
     PlainB,
     PlainC,
     PlainChildModelWithManager,
+    PlainModel,
+    PlainModelWithM2M,
     PlainMyManager,
     PlainMyManagerQuerySet,
     PlainParentModelWithManager,
@@ -691,54 +703,54 @@ class PolymorphicTests(TransactionTestCase):
         objects = RelationBase.objects.all()
         assert (
             repr(objects[0])
-            == '<RelationBase: id 1, field_base (CharField) "base", fk (ForeignKey) None, m2m (ManyToManyField) 0>'
+            f'<RelationBase: id {objects[0].pk}, field_base (CharField) "base", fk (ForeignKey) None, m2m (ManyToManyField) 0>',
         )
         assert (
             repr(objects[1])
-            == '<RelationA: id 2, field_base (CharField) "A1", fk (ForeignKey) RelationBase, field_a (CharField) "A2", m2m (ManyToManyField) 2>'
+            f'<RelationA: id {objects[1].pk}, field_base (CharField) "A1", fk (ForeignKey) RelationBase, field_a (CharField) "A2", m2m (ManyToManyField) 2>',
         )
         assert (
             repr(objects[2])
-            == '<RelationB: id 3, field_base (CharField) "B1", fk (ForeignKey) RelationA, field_b (CharField) "B2", m2m (ManyToManyField) 1>'
+            f'<RelationB: id {objects[2].pk}, field_base (CharField) "B1", fk (ForeignKey) RelationA, field_b (CharField) "B2", m2m (ManyToManyField) 1>',
         )
         assert (
             repr(objects[3])
-            == '<RelationBC: id 4, field_base (CharField) "C1", fk (ForeignKey) RelationA, field_b (CharField) "C2", field_c (CharField) "C3", m2m (ManyToManyField) 0>'
+            f'<RelationBC: id {objects[3].pk}, field_base (CharField) "C1", fk (ForeignKey) RelationA, field_b (CharField) "C2", field_c (CharField) "C3", m2m (ManyToManyField) 0>',
         )
         assert len(objects) == 4
 
-        oa = RelationBase.objects.get(id=2)
+        boa = RelationBase.objects.get(id=oa.pk)
         assert (
-            repr(oa.fk)
-            == '<RelationBase: id 1, field_base (CharField) "base", fk (ForeignKey) None, m2m (ManyToManyField) 0>'
+            repr(boa.fk),
+            f'<RelationBase: id {boa.fk.pk}, field_base (CharField) "base", fk (ForeignKey) None, m2m (ManyToManyField) 0>',
         )
 
-        objects = oa.relationbase_set.all()
+        objects = boa.relationbase_set.all()
         assert (
             repr(objects[0])
-            == '<RelationB: id 3, field_base (CharField) "B1", fk (ForeignKey) RelationA, field_b (CharField) "B2", m2m (ManyToManyField) 1>'
+            f'<RelationB: id {objects[0].pk}, field_base (CharField) "B1", fk (ForeignKey) RelationA, field_b (CharField) "B2", m2m (ManyToManyField) 1>',
         )
         assert (
             repr(objects[1])
-            == '<RelationBC: id 4, field_base (CharField) "C1", fk (ForeignKey) RelationA, field_b (CharField) "C2", field_c (CharField) "C3", m2m (ManyToManyField) 0>'
+            f'<RelationBC: id {objects[1].pk}, field_base (CharField) "C1", fk (ForeignKey) RelationA, field_b (CharField) "C2", field_c (CharField) "C3", m2m (ManyToManyField) 0>',
         )
         assert len(objects) == 2
 
-        ob = RelationBase.objects.get(id=3)
+        bob = RelationBase.objects.get(id=ob.pk)
         assert (
-            repr(ob.fk)
-            == '<RelationA: id 2, field_base (CharField) "A1", fk (ForeignKey) RelationBase, field_a (CharField) "A2", m2m (ManyToManyField) 2>'
+            repr(bob.fk),
+            f'<RelationA: id {bob.fk.pk}, field_base (CharField) "A1", fk (ForeignKey) RelationBase, field_a (CharField) "A2", m2m (ManyToManyField) 2>',
         )
 
-        oa = RelationA.objects.get()
-        objects = oa.m2m.all()
+        aoa = RelationA.objects.get()
+        objects = aoa.m2m.all()
         assert (
             repr(objects[0])
-            == '<RelationA: id 2, field_base (CharField) "A1", fk (ForeignKey) RelationBase, field_a (CharField) "A2", m2m (ManyToManyField) 2>'
+            f'<RelationA: id {objects[0].pk}, field_base (CharField) "A1", fk (ForeignKey) RelationBase, field_a (CharField) "A2", m2m (ManyToManyField) 2>',
         )
         assert (
             repr(objects[1])
-            == '<RelationB: id 3, field_base (CharField) "B1", fk (ForeignKey) RelationA, field_b (CharField) "B2", m2m (ManyToManyField) 1>'
+            f'<RelationB: id {objects[1].pk}, field_base (CharField) "B1", fk (ForeignKey) RelationA, field_b (CharField) "B2", m2m (ManyToManyField) 1>',
         )
         assert len(objects) == 2
 
@@ -1241,3 +1253,521 @@ class PolymorphicTests(TransactionTestCase):
     def test_non_polymorphic_parent(self):
         obj = NonPolymorphicParent.objects.create()
         assert obj.delete()
+
+    def test_normal_django_to_poly_related_give_poly_type(self):
+        obj1 = ParentModel.objects.create(name="m1")
+        obj2 = ChildModel.objects.create(name="m2", other_name="m2")
+        obj3 = ChildModel.objects.create(name="m1")
+
+        PlainModel.objects.create(relation=obj1)
+        PlainModel.objects.create(relation=obj2)
+        PlainModel.objects.create(relation=obj3)
+
+        ct = ContentType.objects.get_for_model(AltChildModel, for_concrete_model=True)
+
+        with self.assertNumQueries(6):
+            # Queries will be
+            #    * 1 for All PlainModels object (1)
+            #    * 1 for each relations ParentModel (4)
+            #    * 1 for each relations ChilModel is needed (3)
+            multi_q = [
+                # these obj.relation values will have their proper sub type
+                obj.relation
+                for obj in PlainModel.objects.all()
+            ]
+            multi_q_types = [type(obj) for obj in multi_q]
+
+        with self.assertNumQueries(2):
+            grouped_q = [
+                # these obj.relation values will all be ParentModel's
+                # unless we fix select related but should be their proper
+                # sub type by using PolymorphicRelatedQuerySetMixin
+                obj.relation
+                for obj in PlainModel.objects.select_related("relation")
+            ]
+            grouped_q_types = [type(obj) for obj in grouped_q]
+
+        self.assertListEqual(multi_q_types, grouped_q_types)
+        self.assertListEqual(grouped_q, [obj1, obj2, obj3])
+
+    def test_normal_django_to_poly_related_give_poly_type_using_select_related_true(self):
+        obj1 = ParentModel.objects.create(name="m1")
+        obj2 = ChildModel.objects.create(name="m2", other_name="m2")
+        obj3 = ChildModel.objects.create(name="m1")
+        obj4 = AltChildAsBaseModel.objects.create(
+            name="ac2", other_name="ac2name", more_name="ac2morename"
+        )
+
+        PlainModel.objects.create(relation=obj1)
+        PlainModel.objects.create(relation=obj2)
+        PlainModel.objects.create(relation=obj3)
+        PlainModel.objects.create(relation=obj4)
+
+        with self.assertNumQueries(8):
+            # Queries will be
+            #    * 1 for All PlainModels object (x1)
+            #    * 1 for each relations ParentModel (x4)
+            #    * 1 for each relations ChildModel is needed (x2)
+            #    * 1 for each relations AltChildAsBaseModel is needed (x1)
+            multi_q = [
+                # these obj.relation values will have their proper sub type
+                obj.relation
+                for obj in PlainModel.objects.all()
+            ]
+            multi_q_types = [type(obj) for obj in multi_q]
+
+        with self.assertNumQueries(3):
+            grouped_q = [
+                # these obj.relation values will all be ParentModel's
+                # unless we fix select related but should be their proper
+                # sub type by using PolymorphicRelatedQuerySetMixin
+                # ATM: we require 1 query fro each type. Although this can
+                # be reduced by specifying the relations to the polymorphic
+                # classes. BUT this has the downside of making the query have
+                # a large number of joins
+                obj.relation
+                for obj in PlainModel.objects.select_related()
+            ]
+            grouped_q_types = [type(obj) for obj in grouped_q]
+
+        self.assertListEqual(multi_q_types, grouped_q_types)
+        self.assertListEqual(grouped_q, [obj1, obj2, obj3, obj4])
+
+    def test_prefetch_base_load_359(self):
+        obj1_1 = ModelShow1_plain.objects.create(field1="1")
+        obj2_1 = ModelShow2_plain.objects.create(field1="2", field2="1")
+        obj3_2 = ModelShow2_plain.objects.create(field1="3", field2="2")
+
+        with self.assertNumQueries(1):
+            obj = ModelShow2_plain.objects.filter(pk=obj2_1.pk)[0]
+            _ = (obj.field1, obj.field1)
+
+    def test_select_related_on_poly_classes(self):
+        plain_a_obj_1 = PlainA.objects.create(field1="f1")
+        plain_a_obj_2 = PlainA.objects.create(field1="f2")
+        extra_obj = ModelExtraExternal.objects.create(topic="t1")
+        obj_p = ParentModel.objects.create(name="p1")
+        obj_c = ChildModel.objects.create(name="c1", other_name="c1name", link_on_child=extra_obj)
+        obj_ac1 = AltChildModel.objects.create(
+            name="ac1", other_name="ac1name", link_on_altchild=plain_a_obj_1
+        )
+        obj_ac2 = AltChildModel.objects.create(
+            name="ac2", other_name="ac2name", link_on_altchild=plain_a_obj_2
+        )
+        obj_p_1 = PlainModel.objects.create(relation=obj_p)
+        obj_p_2 = PlainModel.objects.create(relation=obj_c)
+        obj_p_3 = PlainModel.objects.create(relation=obj_ac1)
+        obj_p_4 = PlainModel.objects.create(relation=obj_ac2)
+
+        with self.assertNumQueries(1):
+            # pos 3 if i cannot do optimized select_related
+            obj_list = list(
+                PlainModel.objects.select_related(
+                    "relation",
+                    "relation__childmodel__link_on_child",
+                    "relation__altchildmodel__link_on_altchild",
+                ).order_by("pk")
+            )
+        with self.assertNumQueries(0):
+            self.assertEqual(obj_list[0].relation.name, "p1")
+            self.assertEqual(obj_list[1].relation.name, "c1")
+            self.assertEqual(obj_list[2].relation.name, "ac1")
+            self.assertEqual(obj_list[3].relation.name, "ac2")
+            obj_list[1].relation.link_on_child
+            obj_list[2].relation.link_on_altchild
+            obj_list[3].relation.link_on_altchild
+
+    def test_select_related_on_poly_classes_supports_multi_level_inheritance(self):
+        plain_a_obj_1 = PlainA.objects.create(field1="f1")
+        plain_a_obj_2 = PlainA.objects.create(field1="f2")
+        extra_obj = ModelExtraExternal.objects.create(topic="t1")
+        obj_p = ParentModel.objects.create(name="p1")
+        obj_c = ChildModel.objects.create(name="c1", other_name="c1name", link_on_child=extra_obj)
+        obj_ac1 = AltChildModel.objects.create(
+            name="ac1", other_name="ac1name", link_on_altchild=plain_a_obj_1
+        )
+        obj_acab2 = AltChildAsBaseModel.objects.create(
+            name="ac2ab",
+            other_name="acab2name",
+            more_name="acab2morename",
+            link_on_altchild=plain_a_obj_2,
+        )
+
+        obj_p_1 = PlainModel.objects.create(relation=obj_p)
+        obj_p_2 = PlainModel.objects.create(relation=obj_c)
+        obj_p_3 = PlainModel.objects.create(relation=obj_ac1)
+        obj_p_4 = PlainModel.objects.create(relation=obj_acab2)
+
+        with self.assertNumQueries(1):
+            # pos 3 if i cannot do optimized select_related
+            obj_list = list(
+                PlainModel.objects.select_related(
+                    "relation",
+                    "relation__childmodel__link_on_child",
+                    "relation__altchildmodel__link_on_altchild",
+                    "relation__altchildmodel__altchildasbasemodel__link_on_altchild",
+                ).order_by("pk")
+            )
+        with self.assertNumQueries(0):
+            self.assertEqual(obj_list[0].relation.name, "p1")
+            self.assertEqual(obj_list[1].relation.name, "c1")
+            self.assertEqual(obj_list[2].relation.name, "ac1")
+            self.assertEqual(obj_list[3].relation.name, "ac2ab")
+            self.assertEqual(obj_list[3].relation.more_name, "acab2morename")
+            obj_list[1].relation.link_on_child
+            obj_list[2].relation.link_on_altchild
+            obj_list[3].relation.link_on_altchild
+
+    def test_select_related_on_poly_classes_with_modelname(self):
+        plain_a_obj_1 = PlainA.objects.create(field1="f1")
+        extra_obj = ModelExtraExternal.objects.create(topic="t1")
+        obj_p = ParentModel.objects.create(name="p1")
+        obj_c = ChildModel.objects.create(name="c1", other_name="c1name", link_on_child=extra_obj)
+        obj_acab2 = AltChildAsBaseModel.objects.create(
+            name="acab2",
+            other_name="acab2name",
+            more_name="acab2morename",
+            link_on_altchild=plain_a_obj_1,
+        )
+        obj_p_1 = PlainModel.objects.create(relation=obj_p)
+        obj_p_2 = PlainModel.objects.create(relation=obj_c)
+        obj_p_3 = PlainModel.objects.create(relation=obj_acab2)
+
+        ct = ContentType.objects.get_for_model(AltChildModel, for_concrete_model=True)
+
+        with self.assertNumQueries(1):
+            obj_list = list(
+                PlainModel.objects.select_related(
+                    "relation",
+                    "relation__ChildModel__link_on_child",
+                    "relation__AltChildAsBaseModel__link_on_altchild",
+                ).order_by("pk")
+            )
+
+        with self.assertNumQueries(0):
+            self.assertEqual(obj_list[0].relation.name, "p1")
+            self.assertEqual(obj_list[1].relation.name, "c1")
+            self.assertEqual(obj_list[2].relation.name, "acab2")
+            obj_list[1].relation.link_on_child
+            obj_list[2].relation.link_on_altchild
+
+    def test_prefetch_related_from_basepoly(self):
+        obja1 = NonSymRelationA.objects.create(field_a="fa1", field_base="fa1")
+        obja2 = NonSymRelationA.objects.create(field_a="fa2", field_base="fa2")
+        objb1 = NonSymRelationB.objects.create(field_b="fb1", field_base="fb1")
+        objbc1 = NonSymRelationBC.objects.create(field_c="fbc1", field_base="fbc1")
+
+        obja3 = NonSymRelationA.objects.create(field_a="fa3", field_base="fa3")
+        # NOTE: these are symmetric links
+        obja3.m2m.add(obja2)
+        obja3.m2m.add(objb1)
+        obja2.m2m.add(objbc1)
+
+        # NOTE: prefetch content types so query asserts test data fetched.
+        ct = ContentType.objects.get_for_model(NonSymRelationBase, for_concrete_model=True)
+
+        with self.assertNumQueries(10):
+            # query for  NonSymRelationBase (base)
+            # query for  NonSymRelationA # level 1 (base)
+            # query for  NonSymRelationB # level 1 (base)
+            # query for  NonSymRelationBC # level 1 (base)
+            # query for prefetch links (m2m)
+            # query for  NonSymRelationA # level 2 (m2m)
+            # query for  NonSymRelationB # level 2 (m2m)
+            # query for  NonSymRelationBC # level 2 (m2m)
+            # query for prefetch links (m2m__m2m)
+            # query for  NonSymRelationA # level 3 (m2m__m2m)
+            # query for  NonSymRelationB # level 3 (m2m__m2m) [SKIPPED AS NO DATA]
+            # query for  NonSymRelationC # level 3 (m2m__m2m) [SKIPPED AS NO DATA]
+
+            all_objs = {
+                obj.pk: obj
+                for obj in NonSymRelationBase.objects.prefetch_related("m2m", "m2m__m2m")
+            }
+
+        with self.assertNumQueries(0):
+            relations = {obj.pk: set(obj.m2m.all()) for obj in all_objs.values()}
+
+        with self.assertNumQueries(0):
+            sub_relations = {a.pk: set(a.m2m.all()) for a in all_objs.get(obja3.pk).m2m.all()}
+
+        self.assertDictEqual(
+            {
+                obja1.pk: set(),
+                obja2.pk: set([objbc1]),
+                obja3.pk: set([obja2, objb1]),
+                objb1.pk: set([]),
+                objbc1.pk: set([]),
+            },
+            relations,
+        )
+
+        self.assertDictEqual(
+            {
+                obja2.pk: set([objbc1]),
+                objb1.pk: set([]),
+            },
+            sub_relations,
+        )
+
+    def test_prefetch_related_from_subclass(self):
+        obja1 = NonSymRelationA.objects.create(field_a="fa1", field_base="fa1")
+        obja2 = NonSymRelationA.objects.create(field_a="fa2", field_base="fa2")
+        objb1 = NonSymRelationB.objects.create(field_b="fb1", field_base="fb1")
+        objbc1 = NonSymRelationBC.objects.create(field_c="fbc1", field_base="fbc1")
+
+        obja3 = NonSymRelationA.objects.create(field_a="fa3", field_base="fa3")
+        # NOTE: these are symmetric links
+        obja3.m2m.add(obja2)
+        obja3.m2m.add(objb1)
+        obja2.m2m.add(objbc1)
+
+        # NOTE: prefetch content types so query asserts test data fetched.
+        ct = ContentType.objects.get_for_model(NonSymRelationBase, for_concrete_model=True)
+
+        with self.assertNumQueries(7):
+            # query for  NonSymRelationA # level 1 (base)
+            # query for prefetch links (m2m)
+            # query for  NonSymRelationA # level 2 (m2m)
+            # query for  NonSymRelationB # level 2 (m2m)
+            # query for  NonSymRelationBC # level 2 (m2m)
+            # query for prefetch links (m2m__m2m)
+            # query for  NonSymRelationA # level 3 (m2m__m2m)
+            # query for  NonSymRelationB # level 3 (m2m__m2m) [SKIPPED AS NO DATA]
+            # query for  NonSymRelationC # level 3 (m2m__m2m) [SKIPPED AS NO DATA]
+
+            all_objs = {
+                obj.pk: obj for obj in NonSymRelationA.objects.prefetch_related("m2m", "m2m__m2m")
+            }
+
+        with self.assertNumQueries(0):
+            relations = {obj.pk: set(obj.m2m.all()) for obj in all_objs.values()}
+
+        with self.assertNumQueries(0):
+            sub_relations = {a.pk: set(a.m2m.all()) for a in all_objs.get(obja3.pk).m2m.all()}
+
+        self.assertDictEqual(
+            {
+                obja1.pk: set(),
+                obja2.pk: set([objbc1]),
+                obja3.pk: set([obja2, objb1]),
+            },
+            relations,
+        )
+
+        self.assertDictEqual(
+            {
+                obja2.pk: set([objbc1]),
+                objb1.pk: set([]),
+            },
+            sub_relations,
+        )
+
+    def test_select_related_field_from_polymorphic_child_class(self):
+        # 198
+        obj_p1 = ParentModel.objects.create(name="p1")
+        obj_p2 = ParentModel.objects.create(name="p2")
+        obj_p3 = ParentModel.objects.create(name="p4")
+        obj_c1 = ChildModel.objects.create(name="c1", other_name="c1name")
+        obj_c2 = ChildModel.objects.create(name="c2", other_name="c2name")
+        obj_ac1 = AltChildModel.objects.create(name="ac1", other_name="ac1name")
+        obj_ac2 = AltChildModel.objects.create(name="ac2", other_name="ac2name")
+        obj_ac3 = AltChildModel.objects.create(name="ac3", other_name="ac3name")
+
+        with self.assertNumQueries(2):
+            # Queries will be
+            #    * 1 for All ParentModel object (x4 +bases of all)
+            #    * 1 for ChildModel object (x2)
+            #    * 0 for AltChildModel object as from select_related (x3)
+            all_objs = [
+                obj
+                for obj in ParentModel.objects.select_related(
+                    "altchildmodel",
+                )
+            ]
+
+    def test_select_related_field_from_polymorphic_child_class_using_modelnames_level1(self):
+        # 198
+        obj_p1 = ParentModel.objects.create(name="p1")
+        obj_p2 = ParentModel.objects.create(name="p2")
+        obj_p3 = ParentModel.objects.create(name="p4")
+        obj_c1 = ChildModel.objects.create(name="c1", other_name="c1name")
+        obj_c2 = ChildModel.objects.create(name="c2", other_name="c2name")
+        obj_ac1 = AltChildModel.objects.create(name="ac1", other_name="ac1name")
+        obj_ac2 = AltChildModel.objects.create(name="ac2", other_name="ac2name")
+        obj_ac3 = AltChildModel.objects.create(name="ac3", other_name="ac3name")
+
+        with self.assertNumQueries(2):
+            # Queries will be
+            #    * 1 for All ParentModel object (x4 +bases of all)
+            #    * 1 for ChildModel object (x2)
+            #    * 0 for AltChildModel object as from select_related (x3)
+            all_objs = [
+                obj
+                for obj in ParentModel.objects.select_related(
+                    "AltChildModel",
+                )
+            ]
+
+    def test_select_related_field_from_polymorphic_child_class_using_modelnames_multi_level(self):
+        plain_a_obj_1 = PlainA.objects.create(field1="f1")
+
+        obj_p1 = ParentModel.objects.create(name="p1")
+        obj_acab2 = AltChildAsBaseModel.objects.create(
+            name="acab2",
+            other_name="acab2name",
+            more_name="acab2morename",
+            link_on_altchild=plain_a_obj_1,
+        )
+        obj_c1 = ChildModel.objects.create(name="c1", other_name="c1name")
+        obj_ac3 = ChildModel.objects.create(name="c2", other_name="c3name")
+
+        # NOTE: prefetch content types so query asserts test data fetched.
+        ct = ContentType.objects.get_for_model(AltChildModel, for_concrete_model=True)
+
+        with self.assertNumQueries(2):
+            # Queries will be
+            #    * 1 for All ParentModel object (x4 +bases of all)
+            #    * 1 for ChildModel object (x1)
+            #    * 0 for AltChildAsBaseModel object as from select_related (x1)
+            #    * 0 for AltChildModel object as part of select_related form
+            #        AltChildAsBaseModel (x1)
+            all_objs = [obj for obj in ParentModel.objects.select_related("AltChildAsBaseModel")]
+
+    def test_prefetch_object_is_supported(self):
+        b1 = RelatingModel.objects.create()
+        b2 = RelatingModel.objects.create()
+
+        rel1 = Model2A.objects.create(field1="A1")
+        rel2 = Model2B.objects.create(field1="A2", field2="B2")
+
+        b1.many2many.add(rel1)
+        b2.many2many.add(rel2)
+
+        rel2.delete(keep_parents=True)
+
+        qs = RelatingModel.objects.order_by("pk").prefetch_related(
+            Prefetch("many2many", queryset=Model2A.objects.all(), to_attr="poly"),
+            Prefetch("many2many", queryset=Model2A.objects.non_polymorphic(), to_attr="non_poly"),
+        )
+
+        objects = list(qs)
+        self.assertEqual(len(objects[0].poly), 1)
+
+        # derived object was not fetched
+        self.assertEqual(len(objects[1].poly), 0)
+
+        # base object always found
+        self.assertEqual(len(objects[0].non_poly), 1)
+        self.assertEqual(len(objects[1].non_poly), 1)
+
+    def test_select_related_on_poly_classes_preserves_on_relations_annotations(self):
+        b1 = RelatingModel.objects.create()
+        b2 = RelatingModel.objects.create()
+        b3 = RelatingModel.objects.create()
+
+        rel1 = Model2A.objects.create(field1="A1")
+        rel2 = Model2B.objects.create(field1="A2", field2="B2")
+
+        b1.many2many.add(rel1)
+        b2.many2many.add(rel2)
+        b3.many2many.add(rel2)
+
+        qs = RelatingModel.objects.order_by("pk").prefetch_related(
+            Prefetch(
+                "many2many",
+                queryset=Model2A.objects.annotate(Count("relatingmodel")),
+                to_attr="poly",
+            )
+        )
+
+        objects = list(qs)
+        self.assertEqual(objects[0].poly[0].relatingmodel__count, 1)
+        self.assertEqual(objects[1].poly[0].relatingmodel__count, 2)
+        self.assertEqual(objects[2].poly[0].relatingmodel__count, 2)
+
+    @expectedFailure
+    def test_prefetch_loading_relation_only_on_some_poly_model(self):
+        plain_a_obj_1 = PlainA.objects.create(field1="p1")
+        plain_a_obj_2 = PlainA.objects.create(field1="p2")
+        plain_a_obj_3 = PlainA.objects.create(field1="p3")
+        plain_a_obj_4 = PlainA.objects.create(field1="p4")
+        plain_a_obj_5 = PlainA.objects.create(field1="p5")
+
+        ac_m2m_obj = AltChildWithM2MModel.objects.create(
+            other_name="o1",
+        )
+        ac_m2m_obj.m2m.set([plain_a_obj_1, plain_a_obj_2, plain_a_obj_3])
+
+        cm_1 = ChildModel.objects.create(other_name="c1")
+        cm_2 = ChildModel.objects.create(other_name="c2")
+        cm_3 = ChildModel.objects.create(other_name="c3")
+
+        acm_1 = AltChildModel.objects.create(other_name="ac3", link_on_altchild=plain_a_obj_4)
+        acm_2 = AltChildModel.objects.create(other_name="ac3", link_on_altchild=plain_a_obj_5)
+
+        pm_1 = PlainModelWithM2M.objects.create(field1="pm1")
+        pm_2 = PlainModelWithM2M.objects.create(field1="pm2")
+
+        pm_1.m2m.set([cm_1, cm_2])
+        pm_2.m2m.set(
+            [
+                cm_3,
+            ]
+        )
+
+        # NOTE: prefetch content types so query asserts test data fetched.
+        ct = ContentType.objects.get_for_model(ParentModel, for_concrete_model=True)
+
+        pm_2.m2m.set([ac_m2m_obj])
+        with self.assertNumQueries(4):
+            # query for PlainModelWithM2M # level 1 (base)
+            # query for prefetch links (m2m)
+            # query for ChildModel # level 2 (m2m)
+            # query for AltChildWithM2MModel # level 2 (m2m)
+            qs = PlainModelWithM2M.objects.all()
+            qs = qs.prefetch_related("m2m__altchildmodel__altchildWithm2mmodel__m2m")
+            all_objs = list(qs)
+
+    @expectedFailure
+    def test_prefetch_loading_relation_only_on_some_poly_model_using_modelnames(self):
+        plain_a_obj_1 = PlainA.objects.create(field1="p1")
+        plain_a_obj_2 = PlainA.objects.create(field1="p2")
+        plain_a_obj_3 = PlainA.objects.create(field1="p3")
+        plain_a_obj_4 = PlainA.objects.create(field1="p4")
+        plain_a_obj_5 = PlainA.objects.create(field1="p5")
+
+        ac_m2m_obj = AltChildWithM2MModel.objects.create(
+            other_name="o1",
+        )
+        ac_m2m_obj.m2m.set([plain_a_obj_1, plain_a_obj_2, plain_a_obj_3])
+
+        cm_1 = ChildModel.objects.create(other_name="c1")
+        cm_2 = ChildModel.objects.create(other_name="c2")
+        cm_3 = ChildModel.objects.create(other_name="c3")
+
+        acm_1 = AltChildModel.objects.create(other_name="ac3", link_on_altchild=plain_a_obj_4)
+        acm_2 = AltChildModel.objects.create(other_name="ac3", link_on_altchild=plain_a_obj_5)
+
+        pm_1 = PlainModelWithM2M.objects.create(field1="pm1")
+        pm_2 = PlainModelWithM2M.objects.create(field1="pm2")
+
+        pm_1.m2m.set([cm_1, cm_2])
+        pm_2.m2m.set(
+            [
+                cm_3,
+            ]
+        )
+
+        # NOTE: prefetch content types so query asserts test data fetched.
+        ct = ContentType.objects.get_for_model(ParentModel, for_concrete_model=True)
+
+        pm_2.m2m.set([ac_m2m_obj])
+        with self.assertNumQueries(4):
+            # query for PlainModelWithM2M # level 1 (base)
+            # query for prefetch links (m2m)
+            # query for ChildModel # level 2 (m2m)
+            # query for AltChildWithM2MModel # level 2 (m2m)
+            qs = PlainModelWithM2M.objects.all()
+            qs = qs.prefetch_related("m2m__AltChildWithM2MModel__m2m")
+            all_objs = list(qs)
