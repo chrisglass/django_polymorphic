@@ -454,8 +454,8 @@ class PolymorphicQuerySetMixin(QuerySet):
     def select_related(self, *fields):
         if fields == (None,) or not len(fields):
             return super().select_related(*fields)
-        field_with_poly = list(self.convert_related_fieldnames(fields))
-        return super().select_related(*field_with_poly)
+        field_with_poly = set(self.convert_related_fieldnames(fields))
+        return super().select_related(*sorted(list(field_with_poly)))
 
     def _convert_field_name_part(self, field_parts, model):
         """
@@ -474,23 +474,32 @@ class PolymorphicQuerySetMixin(QuerySet):
             if field.is_relation:
                 rel_model = field.related_model
                 if next_parts:
-                    self._convert_field_name_part(next_parts, rel_model)
+                    child_selectors = self._convert_field_name_part(next_parts, rel_model)
+                    for selector in child_selectors:
+                        yield field_path + selector
             else:
                 rel_model = model
-
         except FieldDoesNotExist:
             submodels = _get_all_sub_models(model)
-            rel_model = submodels.get(part, None)
-            field_path = list(_create_base_path(model, rel_model).split("__"))
-            for field_part_idx in range(0, len(field_path)):
-                yield field_path[0 : 1 + field_part_idx]
+            if part == "*":
+                for rel_model in submodels.values():
+                    if model is rel_model:
+                        continue
+                    yield from self._convert_submodel_fields_parts(next_parts, model, rel_model)
+            else:
+                rel_model = submodels.get(part, None)
+                if model is not rel_model:
+                    yield from self._convert_submodel_fields_parts(next_parts, model, rel_model)
 
-        if next_parts:
-            child_selectors = self._convert_field_name_part(next_parts, rel_model)
+    def _convert_submodel_fields_parts(self, field_parts, model, rel_model):
+        field_path = list(_create_base_path(model, rel_model).split("__"))
+        for field_part_idx in range(0, len(field_path)):
+            yield field_path[0 : 1 + field_part_idx]
+        yield field_path
+        if field_parts:
+            child_selectors = self._convert_field_name_part(field_parts, rel_model)
             for selector in child_selectors:
-                all_field_path = field_path + selector
-                for field_part_idx in range(0, len(all_field_path)):
-                    yield all_field_path[0 : 1 + field_part_idx]
+                yield field_path + selector
 
     def convert_related_fieldnames(self, fields, opts=None):
         """
