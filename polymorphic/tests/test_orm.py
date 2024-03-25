@@ -1522,8 +1522,6 @@ class PolymorphicTests(TransactionTestCase):
         self.assertIsInstance(obj_list[2].plainobj.relation, AltChildModel)
         self.assertIsInstance(obj_list[3].plainobj.relation, AltChildModel)
 
-
-
     def test_select_related_fecth_all_poly_classes_indirect_related(self):
         # can we fetch the related object but only the minimal 'common' values
         plain_a_obj_1 = PlainA.objects.create(field1="f1")
