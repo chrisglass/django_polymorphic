@@ -2327,4 +2327,21 @@ class Migration(migrations.Migration):
             },
             bases=("tests.altchildmodel",),
         ),
+        migrations.CreateModel(
+            name="RefPlainModel",
+            fields=[
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "plainobj",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE, to="tests.plainmodel"
+                    ),
+                ),
+            ],
+        ),
     ]

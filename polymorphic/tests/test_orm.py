@@ -83,6 +83,7 @@ from polymorphic.tests.models import (
     ProxyModelB,
     ProxyModelBase,
     RedheadDuck,
+    RefPlainModel,
     RelatingModel,
     RelationA,
     RelationB,
@@ -1263,7 +1264,7 @@ class PolymorphicTests(TransactionTestCase):
         PlainModel.objects.create(relation=obj2)
         PlainModel.objects.create(relation=obj3)
 
-        ct = ContentType.objects.get_for_model(AltChildModel, for_concrete_model=True)
+        ContentType.objects.get_for_model(AltChildModel)
 
         with self.assertNumQueries(6):
             # Queries will be
@@ -1359,6 +1360,8 @@ class PolymorphicTests(TransactionTestCase):
         obj_p_3 = PlainModel.objects.create(relation=obj_ac1)
         obj_p_4 = PlainModel.objects.create(relation=obj_ac2)
 
+        ContentType.objects.get_for_models(PlainA, ModelExtraExternal, AltChildModel)
+
         with self.assertNumQueries(1):
             # pos 3 if i cannot do optimized select_related
             obj_list = list(
@@ -1376,6 +1379,199 @@ class PolymorphicTests(TransactionTestCase):
             obj_list[1].relation.link_on_child
             obj_list[2].relation.link_on_altchild
             obj_list[3].relation.link_on_altchild
+
+        self.assertIsInstance(obj_list[0].relation, ParentModel)
+        self.assertIsInstance(obj_list[1].relation, ChildModel)
+        self.assertIsInstance(obj_list[2].relation, AltChildModel)
+        self.assertIsInstance(obj_list[3].relation, AltChildModel)
+
+    def test_select_related_on_poly_classes_simple(self):
+        # can we fetch the related object but only the minimal 'common' values
+        plain_a_obj_1 = PlainA.objects.create(field1="f1")
+        plain_a_obj_2 = PlainA.objects.create(field1="f2")
+        extra_obj = ModelExtraExternal.objects.create(topic="t1")
+        obj_p = ParentModel.objects.create(name="p1")
+        obj_c = ChildModel.objects.create(name="c1", other_name="c1name", link_on_child=extra_obj)
+        obj_ac1 = AltChildModel.objects.create(
+            name="ac1", other_name="ac1name", link_on_altchild=plain_a_obj_1
+        )
+        obj_ac2 = AltChildModel.objects.create(
+            name="ac2", other_name="ac2name", link_on_altchild=plain_a_obj_2
+        )
+        obj_p_1 = PlainModel.objects.create(relation=obj_p)
+        obj_p_2 = PlainModel.objects.create(relation=obj_c)
+        obj_p_3 = PlainModel.objects.create(relation=obj_ac1)
+        obj_p_4 = PlainModel.objects.create(relation=obj_ac2)
+
+        with self.assertNumQueries(1):
+            # pos 3 if i cannot do optimized select_related
+            obj_list = list(
+                PlainModel.objects.select_related(
+                    "relation",
+                    "relation__childmodel",
+                    "relation__altchildmodel",
+                )
+                .order_by("pk")
+                .only(
+                    "relation__name",
+                    "relation__polymorphic_ctype_id",
+                )
+            )
+        with self.assertNumQueries(0):
+            self.assertEqual(obj_list[0].relation.name, "p1")
+            self.assertEqual(obj_list[1].relation.name, "c1")
+            self.assertEqual(obj_list[2].relation.name, "ac1")
+            self.assertEqual(obj_list[3].relation.name, "ac2")
+
+        self.assertIsInstance(obj_list[0].relation, ParentModel)
+        self.assertIsInstance(obj_list[1].relation, ChildModel)
+        self.assertIsInstance(obj_list[2].relation, AltChildModel)
+        self.assertIsInstance(obj_list[3].relation, AltChildModel)
+
+    def test_select_related_on_poly_classes_indirect_related(self):
+        # can we fetch the related object but only the minimal 'common' values
+        plain_a_obj_1 = PlainA.objects.create(field1="f1")
+        plain_a_obj_2 = PlainA.objects.create(field1="f2")
+        extra_obj = ModelExtraExternal.objects.create(topic="t1")
+        obj_p = ParentModel.objects.create(name="p1")
+        obj_c = ChildModel.objects.create(name="c1", other_name="c1name", link_on_child=extra_obj)
+        obj_ac1 = AltChildModel.objects.create(
+            name="ac1", other_name="ac1name", link_on_altchild=plain_a_obj_1
+        )
+        obj_ac2 = AltChildModel.objects.create(
+            name="ac2", other_name="ac2name", link_on_altchild=plain_a_obj_2
+        )
+        obj_p_1 = PlainModel.objects.create(relation=obj_p)
+        obj_p_2 = PlainModel.objects.create(relation=obj_c)
+        obj_p_3 = PlainModel.objects.create(relation=obj_ac1)
+        obj_p_4 = PlainModel.objects.create(relation=obj_ac2)
+
+        robj_1 = RefPlainModel.objects.create(plainobj=obj_p_1)
+        robj_2 = RefPlainModel.objects.create(plainobj=obj_p_2)
+        robj_3 = RefPlainModel.objects.create(plainobj=obj_p_3)
+        robj_4 = RefPlainModel.objects.create(plainobj=obj_p_4)
+
+        # Prefetch content_types
+        ContentType.objects.get_for_models(PlainModel, PlainA, ModelExtraExternal)
+
+        with self.assertNumQueries(1):
+            # pos 3 if i cannot do optimized select_related
+            obj_list = list(
+                RefPlainModel.objects.select_related(
+                    # "plainobj__relation",
+                    "plainobj__relation",
+                    "plainobj__relation__childmodel__link_on_child",
+                    "plainobj__relation__altchildmodel__link_on_altchild",
+                ).order_by("pk")
+            )
+        with self.assertNumQueries(0):
+            self.assertEqual(obj_list[0].plainobj.relation.name, "p1")
+            self.assertEqual(obj_list[1].plainobj.relation.name, "c1")
+            self.assertEqual(obj_list[2].plainobj.relation.name, "ac1")
+            self.assertEqual(obj_list[3].plainobj.relation.name, "ac2")
+
+        self.assertIsInstance(obj_list[0].plainobj.relation, ParentModel)
+        self.assertIsInstance(obj_list[1].plainobj.relation, ChildModel)
+        self.assertIsInstance(obj_list[2].plainobj.relation, AltChildModel)
+        self.assertIsInstance(obj_list[3].plainobj.relation, AltChildModel)
+
+    def test_select_related_on_poly_classes_indirect_related(self):
+        # can we fetch the related object but only the minimal 'common' values
+        plain_a_obj_1 = PlainA.objects.create(field1="f1")
+        plain_a_obj_2 = PlainA.objects.create(field1="f2")
+        extra_obj = ModelExtraExternal.objects.create(topic="t1")
+        obj_p = ParentModel.objects.create(name="p1")
+        obj_c = ChildModel.objects.create(name="c1", other_name="c1name", link_on_child=extra_obj)
+        obj_ac1 = AltChildModel.objects.create(
+            name="ac1", other_name="ac1name", link_on_altchild=plain_a_obj_1
+        )
+        obj_ac2 = AltChildModel.objects.create(
+            name="ac2", other_name="ac2name", link_on_altchild=plain_a_obj_2
+        )
+        obj_p_1 = PlainModel.objects.create(relation=obj_p)
+        obj_p_2 = PlainModel.objects.create(relation=obj_c)
+        obj_p_3 = PlainModel.objects.create(relation=obj_ac1)
+        obj_p_4 = PlainModel.objects.create(relation=obj_ac2)
+
+        robj_1 = RefPlainModel.objects.create(plainobj=obj_p_1)
+        robj_2 = RefPlainModel.objects.create(plainobj=obj_p_2)
+        robj_3 = RefPlainModel.objects.create(plainobj=obj_p_3)
+        robj_4 = RefPlainModel.objects.create(plainobj=obj_p_4)
+
+        # Prefetch content_types
+        ContentType.objects.get_for_models(PlainModel, PlainA, ModelExtraExternal)
+
+        with self.assertNumQueries(1):
+            # pos 3 if i cannot do optimized select_related
+            obj_list = list(
+                RefPlainModel.objects.select_related(
+                    # "plainobj__relation",
+                    "plainobj__relation",
+                    "plainobj__relation__childmodel__link_on_child",
+                    "plainobj__relation__altchildmodel__link_on_altchild",
+                ).order_by("pk")
+            )
+        with self.assertNumQueries(0):
+            self.assertEqual(obj_list[0].plainobj.relation.name, "p1")
+            self.assertEqual(obj_list[1].plainobj.relation.name, "c1")
+            self.assertEqual(obj_list[2].plainobj.relation.name, "ac1")
+            self.assertEqual(obj_list[3].plainobj.relation.name, "ac2")
+
+        self.assertIsInstance(obj_list[0].plainobj.relation, ParentModel)
+        self.assertIsInstance(obj_list[1].plainobj.relation, ChildModel)
+        self.assertIsInstance(obj_list[2].plainobj.relation, AltChildModel)
+        self.assertIsInstance(obj_list[3].plainobj.relation, AltChildModel)
+
+
+
+    def test_select_related_fecth_all_poly_classes_indirect_related(self):
+        # can we fetch the related object but only the minimal 'common' values
+        plain_a_obj_1 = PlainA.objects.create(field1="f1")
+        plain_a_obj_2 = PlainA.objects.create(field1="f2")
+        extra_obj = ModelExtraExternal.objects.create(topic="t1")
+        obj_p = ParentModel.objects.create(name="p1")
+        obj_c = ChildModel.objects.create(name="c1", other_name="c1name", link_on_child=extra_obj)
+        obj_ac1 = AltChildModel.objects.create(
+            name="ac1", other_name="ac1name", link_on_altchild=plain_a_obj_1
+        )
+        obj_ac2 = AltChildModel.objects.create(
+            name="ac2", other_name="ac2name", link_on_altchild=plain_a_obj_2
+        )
+        obj_p_1 = PlainModel.objects.create(relation=obj_p)
+        obj_p_2 = PlainModel.objects.create(relation=obj_c)
+        obj_p_3 = PlainModel.objects.create(relation=obj_ac1)
+        obj_p_4 = PlainModel.objects.create(relation=obj_ac2)
+
+        robj_1 = RefPlainModel.objects.create(plainobj=obj_p_1)
+        robj_2 = RefPlainModel.objects.create(plainobj=obj_p_2)
+        robj_3 = RefPlainModel.objects.create(plainobj=obj_p_3)
+        robj_4 = RefPlainModel.objects.create(plainobj=obj_p_4)
+
+        # Prefetch content_types
+        ContentType.objects.get_for_models(
+            PlainModel, PlainA, ModelExtraExternal,
+            AltChildAsBaseModel, AltChildWithM2MModel
+        )
+
+        with self.assertNumQueries(1):
+            # pos 3 if i cannot do optimized select_related
+            obj_list = list(
+                RefPlainModel.objects.select_related(
+                    # "plainobj__relation",
+                    "plainobj__relation",
+                    "plainobj__relation__*",
+                ).order_by("pk")
+            )
+        with self.assertNumQueries(0):
+            self.assertEqual(obj_list[0].plainobj.relation.name, "p1")
+            self.assertEqual(obj_list[1].plainobj.relation.name, "c1")
+            self.assertEqual(obj_list[2].plainobj.relation.name, "ac1")
+            self.assertEqual(obj_list[3].plainobj.relation.name, "ac2")
+
+        self.assertIsInstance(obj_list[0].plainobj.relation, ParentModel)
+        self.assertIsInstance(obj_list[1].plainobj.relation, ChildModel)
+        self.assertIsInstance(obj_list[2].plainobj.relation, AltChildModel)
+        self.assertIsInstance(obj_list[3].plainobj.relation, AltChildModel)
 
     def test_select_related_on_poly_classes_supports_multi_level_inheritance(self):
         plain_a_obj_1 = PlainA.objects.create(field1="f1")
@@ -1397,6 +1593,8 @@ class PolymorphicTests(TransactionTestCase):
         obj_p_2 = PlainModel.objects.create(relation=obj_c)
         obj_p_3 = PlainModel.objects.create(relation=obj_ac1)
         obj_p_4 = PlainModel.objects.create(relation=obj_acab2)
+
+        ContentType.objects.get_for_models(PlainA, ModelExtraExternal)
 
         with self.assertNumQueries(1):
             # pos 3 if i cannot do optimized select_related
@@ -1433,7 +1631,7 @@ class PolymorphicTests(TransactionTestCase):
         obj_p_2 = PlainModel.objects.create(relation=obj_c)
         obj_p_3 = PlainModel.objects.create(relation=obj_acab2)
 
-        ct = ContentType.objects.get_for_model(AltChildModel, for_concrete_model=True)
+        ContentType.objects.get_for_models(PlainA, ModelExtraExternal, AltChildModel)
 
         with self.assertNumQueries(1):
             obj_list = list(
@@ -1464,7 +1662,7 @@ class PolymorphicTests(TransactionTestCase):
         obja2.m2m.add(objbc1)
 
         # NOTE: prefetch content types so query asserts test data fetched.
-        ct = ContentType.objects.get_for_model(NonSymRelationBase, for_concrete_model=True)
+        ContentType.objects.get_for_model(NonSymRelationBase)
 
         with self.assertNumQueries(10):
             # query for  NonSymRelationBase (base)
@@ -1523,7 +1721,7 @@ class PolymorphicTests(TransactionTestCase):
         obja2.m2m.add(objbc1)
 
         # NOTE: prefetch content types so query asserts test data fetched.
-        ct = ContentType.objects.get_for_model(NonSymRelationBase, for_concrete_model=True)
+        ContentType.objects.get_for_model(NonSymRelationBase)
 
         with self.assertNumQueries(7):
             # query for  NonSymRelationA # level 1 (base)
@@ -1623,7 +1821,7 @@ class PolymorphicTests(TransactionTestCase):
         obj_ac3 = ChildModel.objects.create(name="c2", other_name="c3name")
 
         # NOTE: prefetch content types so query asserts test data fetched.
-        ct = ContentType.objects.get_for_model(AltChildModel, for_concrete_model=True)
+        ContentType.objects.get_for_model(AltChildModel)
 
         with self.assertNumQueries(2):
             # Queries will be
@@ -1717,7 +1915,7 @@ class PolymorphicTests(TransactionTestCase):
         )
 
         # NOTE: prefetch content types so query asserts test data fetched.
-        ct = ContentType.objects.get_for_model(ParentModel, for_concrete_model=True)
+        ContentType.objects.get_for_model(ParentModel)
 
         pm_2.m2m.set([ac_m2m_obj])
         with self.assertNumQueries(4):
@@ -1760,7 +1958,7 @@ class PolymorphicTests(TransactionTestCase):
         )
 
         # NOTE: prefetch content types so query asserts test data fetched.
-        ct = ContentType.objects.get_for_model(ParentModel, for_concrete_model=True)
+        ContentType.objects.get_for_model(ParentModel)
 
         pm_2.m2m.set([ac_m2m_obj])
         with self.assertNumQueries(4):

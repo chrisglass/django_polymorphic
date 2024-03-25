@@ -555,6 +555,11 @@ class PlainModel(models.Model):
     objects = models.Manager.from_queryset(PolymorphicRelatedQuerySet)()
 
 
+class RefPlainModel(models.Model):
+    plainobj = models.ForeignKey(PlainModel, on_delete=models.CASCADE)
+    objects = models.Manager.from_queryset(PolymorphicRelatedQuerySet)()
+
+
 class PlainModelWithM2M(models.Model):
     field1 = models.CharField(max_length=10)
     m2m = models.ManyToManyField(ParentModel)
