@@ -177,6 +177,13 @@ About Queryset Methods
             relation = models.ForeignKey(BasePolyModel, on_delete=models.CASCADE)
             objects = models.Manager.from_queryset(PolymorphicRelatedQuerySet)()
 
+    or by converting a models queryset using
+
+        class NonPolyModel(models.Model):
+            relation = models.ForeignKey(BasePolyModel, on_delete=models.CASCADE)
+            objects = models.Manager.from_queryset(QuerySet)()
+
+    ``convert_to_polymorphic_queryset(NonPolyModel.objects).filter(...)``
 
     To select related fields the model name comes after the field name and set the
     field.

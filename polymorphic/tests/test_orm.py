@@ -10,6 +10,7 @@ from django.db.models import Case, Count, FilteredRelation, Q, When, F, Prefetch
 from django.db.utils import IntegrityError
 from django.test import TransactionTestCase
 from polymorphic import query_translate
+from polymorphic.query import convert_to_polymorphic_queryset
 from polymorphic.managers import PolymorphicManager
 from polymorphic.models import PolymorphicTypeInvalid, PolymorphicTypeUndefined
 from polymorphic.tests.models import (
@@ -101,6 +102,7 @@ from polymorphic.tests.models import (
     UUIDPlainC,
     UUIDProject,
     UUIDResearchProject,
+    VanillaPlainModel,
 )
 
 
@@ -1428,6 +1430,74 @@ class PolymorphicTests(TransactionTestCase):
         self.assertIsInstance(obj_list[2].relation, AltChildModel)
         self.assertIsInstance(obj_list[3].relation, AltChildModel)
 
+    def test_we_can_upgrade_a_query_set_to_polymorphic_supports_already_ploy_qs(self):
+        base_qs = RefPlainModel.poly_objects.get_queryset()
+        self.assertIs(convert_to_polymorphic_queryset(base_qs), base_qs)
+
+    def test_we_can_upgrade_a_query_set_to_polymorphic_supports_non_ploy_qs_on_ploy_object(self):
+        base_qs = RefPlainModel.objects.get_queryset()
+        self.assertIsNot(convert_to_polymorphic_queryset(base_qs), base_qs)
+        self.assertIsInstance(convert_to_polymorphic_queryset(base_qs), PolymorphicRelatedQuerySetMixin)
+
+    def test_we_can_upgrade_a_query_set_to_polymorphic_supports_non_ploy_managers_on_ploy_object(self):
+        base_qs = RefPlainModel.objects
+        self.assertIsNot(convert_to_polymorphic_queryset(base_qs), base_qs)
+        self.assertIsInstance(convert_to_polymorphic_queryset(base_qs), PolymorphicRelatedQuerySetMixin)
+
+    def test_we_can_upgrade_a_query_set_to_polymorphic(self):
+        # can we fetch the related object but only the minimal 'common' values
+        plain_a_obj_1 = PlainA.objects.create(field1="f1")
+        plain_a_obj_2 = PlainA.objects.create(field1="f2")
+        extra_obj = ModelExtraExternal.objects.create(topic="t1")
+        obj_p = ParentModel.objects.create(name="p1")
+        obj_c = ChildModel.objects.create(name="c1", other_name="c1name", link_on_child=extra_obj)
+        obj_ac1 = AltChildModel.objects.create(
+            name="ac1", other_name="ac1name", link_on_altchild=plain_a_obj_1
+        )
+        obj_ac2 = AltChildModel.objects.create(
+            name="ac2", other_name="ac2name", link_on_altchild=plain_a_obj_2
+        )
+        obj_p_1 = VanillaPlainModel.objects.create(relation=obj_p)
+        obj_p_2 = VanillaPlainModel.objects.create(relation=obj_c)
+        obj_p_3 = VanillaPlainModel.objects.create(relation=obj_ac1)
+        obj_p_4 = VanillaPlainModel.objects.create(relation=obj_ac2)
+
+        with self.assertNumQueries(1):
+            # pos 3 if i cannot do optimized select_related
+            obj_list = list(
+                VanillaPlainModel.objects.order_by("pk")
+            )
+
+        with self.assertNumQueries(7):
+            self.assertEqual(obj_list[0].relation.name, "p1")
+            self.assertEqual(obj_list[1].relation.name, "c1")
+            self.assertEqual(obj_list[2].relation.name, "ac1")
+            self.assertEqual(obj_list[3].relation.name, "ac2")
+
+        with self.assertNumQueries(1):
+            # pos 3 if i cannot do optimized select_related
+            obj_list = list(
+                convert_to_polymorphic_queryset(
+                    VanillaPlainModel.objects
+                ).select_related(
+                    "relation",
+                    "relation__childmodel",
+                    "relation__altchildmodel",
+                )
+                .order_by("pk")
+            )
+
+        with self.assertNumQueries(0):
+            self.assertEqual(obj_list[0].relation.name, "p1")
+            self.assertEqual(obj_list[1].relation.name, "c1")
+            self.assertEqual(obj_list[2].relation.name, "ac1")
+            self.assertEqual(obj_list[3].relation.name, "ac2")
+
+        self.assertIsInstance(obj_list[0].relation, ParentModel)
+        self.assertIsInstance(obj_list[1].relation, ChildModel)
+        self.assertIsInstance(obj_list[2].relation, AltChildModel)
+        self.assertIsInstance(obj_list[3].relation, AltChildModel)
+
     def test_select_related_on_poly_classes_indirect_related(self):
         # can we fetch the related object but only the minimal 'common' values
         plain_a_obj_1 = PlainA.objects.create(field1="f1")
@@ -1457,7 +1527,7 @@ class PolymorphicTests(TransactionTestCase):
         with self.assertNumQueries(1):
             # pos 3 if i cannot do optimized select_related
             obj_list = list(
-                RefPlainModel.objects.select_related(
+                RefPlainModel.poly_objects.select_related(
                     # "plainobj__relation",
                     "plainobj__relation",
                     "plainobj__relation__childmodel__link_on_child",
@@ -1504,7 +1574,7 @@ class PolymorphicTests(TransactionTestCase):
         with self.assertNumQueries(1):
             # pos 3 if i cannot do optimized select_related
             obj_list = list(
-                RefPlainModel.objects.select_related(
+                RefPlainModel.poly_objects.select_related(
                     # "plainobj__relation",
                     "plainobj__relation",
                     "plainobj__relation__childmodel__link_on_child",
@@ -1554,7 +1624,7 @@ class PolymorphicTests(TransactionTestCase):
         with self.assertNumQueries(1):
             # pos 3 if i cannot do optimized select_related
             obj_list = list(
-                RefPlainModel.objects.select_related(
+                RefPlainModel.poly_objects.select_related(
                     # "plainobj__relation",
                     "plainobj__relation",
                     "plainobj__relation__*",

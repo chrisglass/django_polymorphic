@@ -9,7 +9,7 @@ from collections import defaultdict
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import FieldDoesNotExist
-from django.db.models import FilteredRelation
+from django.db.models import FilteredRelation, Manager
 from django.db.models.constants import LOOKUP_SEP
 from django.db.models.query import ModelIterable, Q, QuerySet
 from django.db.models.query import BaseIterable, RelatedPopulator
@@ -1015,3 +1015,36 @@ class PolymorphicRelatedQuerySetMixin(PolymorphicQuerySetMixin):
 
 class PolymorphicRelatedQuerySet(PolymorphicRelatedQuerySetMixin, QuerySet):
     pass
+
+
+def convert_to_polymorphic_queryset(qs):
+    "Convert a queryset to one that support polymorphic evaluation"
+
+    if isinstance(qs, Manager):
+        qs = qs.get_queryset()
+
+    if issubclass(qs.__class__, PolymorphicQuerySetMixin):
+        return qs
+
+    assert issubclass(QuerySet, qs.__class__), (
+        "PolymorphicModel: cannot guarantee conversion of"
+        f" {qs.__class__} to polymorphic queryset")
+
+    class RelatedPolyQuerySet(PolymorphicRelatedQuerySetMixin, qs.__class__):
+        @classmethod
+        def _convert_to(cls, qs):
+            c = cls(
+                model=qs.model,
+                query=qs.query.chain(),
+                using=qs._db,
+                hints=qs._hints,
+            )
+            c._sticky_filter = qs._sticky_filter
+            c._for_write = qs._for_write
+            c._prefetch_related_lookups = qs._prefetch_related_lookups[:]
+            c._known_related_objects = qs._known_related_objects
+            c._fields = qs._fields
+            return c
+
+    poly_qs = RelatedPolyQuerySet._convert_to(qs)
+    return poly_qs

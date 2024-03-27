@@ -554,10 +554,13 @@ class PlainModel(models.Model):
     relation = models.ForeignKey(ParentModel, on_delete=models.CASCADE)
     objects = models.Manager.from_queryset(PolymorphicRelatedQuerySet)()
 
+class VanillaPlainModel(models.Model):
+    relation = models.ForeignKey(ParentModel, on_delete=models.CASCADE)
 
 class RefPlainModel(models.Model):
     plainobj = models.ForeignKey(PlainModel, on_delete=models.CASCADE)
-    objects = models.Manager.from_queryset(PolymorphicRelatedQuerySet)()
+    objects = models.Manager.from_queryset(QuerySet)()
+    poly_objects = models.Manager.from_queryset(PolymorphicRelatedQuerySet)()
 
 
 class PlainModelWithM2M(models.Model):
