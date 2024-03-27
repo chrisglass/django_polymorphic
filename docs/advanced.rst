@@ -167,9 +167,27 @@ About Queryset Methods
 *   ``distinct()`` works as expected. It only regards the fields of
     the base class, but this should never make a difference.
 
-*   ``select_related()`` works just as usual, but it can not (yet) be used
-    to select relations in inherited models
-    (like ``ModelA.objects.select_related('ModelC___fieldxy')`` )
+*   ``select_related()`` works just as usual with the exception that the
+    query set must be derived from a PolymorphicRelatedQuerySetMixin
+    or PolymorphicRelatedQuerySet.
+
+    This can be achieved by using a custom manager
+
+        class NonPolyModel(models.Model):
+            relation = models.ForeignKey(BasePolyModel, on_delete=models.CASCADE)
+            objects = models.Manager.from_queryset(PolymorphicRelatedQuerySet)()
+
+
+    To select related fields the model name comes after the field name and set the
+    field.
+    ``ModelA.objects.filter(....).select_related('field___TargetModel__subfield')``.
+    or using the polymorphic added related fieldname which is normally the lowercase
+    version of the model name.
+    ``ModelA.objects.filter(....).select_related('field__targetmodel__subfield')``
+
+    This automatically manages the via models between the model specified in the related
+    field and the target model.
+    ``ModelA.objects.filter(....).select_related('field__targetparentmodel__targetmodel__subfield')``
 
 *   ``extra()`` works as expected (it returns polymorphic results) but
     currently has one restriction: The resulting objects are required to have
