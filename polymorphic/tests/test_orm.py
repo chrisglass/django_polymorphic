@@ -13,6 +13,9 @@ from polymorphic import query_translate
 from polymorphic.query import convert_to_polymorphic_queryset
 from polymorphic.managers import PolymorphicManager
 from polymorphic.models import PolymorphicTypeInvalid, PolymorphicTypeUndefined
+from polymorphic.query import (
+    PolymorphicRelatedQuerySetMixin,
+)
 from polymorphic.tests.models import (
     AltChildAsBaseModel,
     AltChildModel,
@@ -1369,8 +1372,8 @@ class PolymorphicTests(TransactionTestCase):
             obj_list = list(
                 PlainModel.objects.select_related(
                     "relation",
-                    "relation__childmodel__link_on_child",
-                    "relation__altchildmodel__link_on_altchild",
+                    "relation__ChildModel__link_on_child",
+                    "relation__AltChildModel__link_on_altchild",
                 ).order_by("pk")
             )
         with self.assertNumQueries(0):
@@ -1386,6 +1389,32 @@ class PolymorphicTests(TransactionTestCase):
         self.assertIsInstance(obj_list[1].relation, ChildModel)
         self.assertIsInstance(obj_list[2].relation, AltChildModel)
         self.assertIsInstance(obj_list[3].relation, AltChildModel)
+
+    def test_select_related_can_merge_fields(self):
+        # can we fetch the related object but only the minimal 'common' values
+        plain_a_obj_1 = PlainA.objects.create(field1="f1")
+        plain_a_obj_2 = PlainA.objects.create(field1="f2")
+        extra_obj = ModelExtraExternal.objects.create(topic="t1")
+        obj_p = ParentModel.objects.create(name="p1")
+        obj_c = ChildModel.objects.create(name="c1", other_name="c1name", link_on_child=extra_obj)
+        obj_ac1 = AltChildModel.objects.create(
+            name="ac1", other_name="ac1name", link_on_altchild=plain_a_obj_1
+        )
+        obj_ac2 = AltChildModel.objects.create(
+            name="ac2", other_name="ac2name", link_on_altchild=plain_a_obj_2
+        )
+        obj_p_1 = PlainModel.objects.create(relation=obj_p)
+        obj_p_2 = PlainModel.objects.create(relation=obj_c)
+        obj_p_3 = PlainModel.objects.create(relation=obj_ac1)
+        obj_p_4 = PlainModel.objects.create(relation=obj_ac2)
+        ContentType.objects.get_for_models(PlainA, ModelExtraExternal, AltChildModel)
+        base_query = PlainModel.objects.select_related(
+                "relation__ChildModel",
+            )
+        base_query = base_query.select_related(
+            "relation__AltChildModel")
+        with self.assertNumQueries(1):
+            list(base_query)
 
     def test_select_related_on_poly_classes_simple(self):
         # can we fetch the related object but only the minimal 'common' values
@@ -1410,13 +1439,13 @@ class PolymorphicTests(TransactionTestCase):
             obj_list = list(
                 PlainModel.objects.select_related(
                     "relation",
-                    "relation__childmodel",
-                    "relation__altchildmodel",
+                    "relation__ChildModel_",
+                    "relation__AltChildModel_",
                 )
                 .order_by("pk")
                 .only(
                     "relation__name",
-                    "relation__polymorphic_ctype_id",
+                    "relation__polymorphic_ctype",
                 )
             )
         with self.assertNumQueries(0):
@@ -1481,8 +1510,8 @@ class PolymorphicTests(TransactionTestCase):
                     VanillaPlainModel.objects
                 ).select_related(
                     "relation",
-                    "relation__childmodel",
-                    "relation__altchildmodel",
+                    "relation__ChildModel",
+                    "relation__AltChildModel",
                 )
                 .order_by("pk")
             )
@@ -1530,8 +1559,8 @@ class PolymorphicTests(TransactionTestCase):
                 RefPlainModel.poly_objects.select_related(
                     # "plainobj__relation",
                     "plainobj__relation",
-                    "plainobj__relation__childmodel__link_on_child",
-                    "plainobj__relation__altchildmodel__link_on_altchild",
+                    "plainobj__relation__ChildModel__link_on_child",
+                    "plainobj__relation__AltChildModel__link_on_altchild",
                 ).order_by("pk")
             )
         with self.assertNumQueries(0):
@@ -1577,8 +1606,8 @@ class PolymorphicTests(TransactionTestCase):
                 RefPlainModel.poly_objects.select_related(
                     # "plainobj__relation",
                     "plainobj__relation",
-                    "plainobj__relation__childmodel__link_on_child",
-                    "plainobj__relation__altchildmodel__link_on_altchild",
+                    "plainobj__relation__ChildModel__link_on_child",
+                    "plainobj__relation__AltChildModel__link_on_altchild",
                 ).order_by("pk")
             )
         with self.assertNumQueries(0):
@@ -1669,9 +1698,9 @@ class PolymorphicTests(TransactionTestCase):
             obj_list = list(
                 PlainModel.objects.select_related(
                     "relation",
-                    "relation__childmodel__link_on_child",
-                    "relation__altchildmodel__link_on_altchild",
-                    "relation__altchildmodel__altchildasbasemodel__link_on_altchild",
+                    "relation__ChildModel__link_on_child",
+                    "relation__AltChildModel__link_on_altchild",
+                    "relation__AltChildAsBaseModel__link_on_altchild",
                 ).order_by("pk")
             )
         with self.assertNumQueries(0):
@@ -1848,7 +1877,7 @@ class PolymorphicTests(TransactionTestCase):
             all_objs = [
                 obj
                 for obj in ParentModel.objects.select_related(
-                    "altchildmodel",
+                    "AltChildModel",
                 )
             ]
 
@@ -1898,7 +1927,8 @@ class PolymorphicTests(TransactionTestCase):
             #    * 0 for AltChildAsBaseModel object as from select_related (x1)
             #    * 0 for AltChildModel object as part of select_related form
             #        AltChildAsBaseModel (x1)
-            all_objs = [obj for obj in ParentModel.objects.select_related("AltChildAsBaseModel")]
+            all_objs = [obj for obj in ParentModel.objects.select_related(
+                "AltChildAsBaseModel")]
 
     def test_prefetch_object_is_supported(self):
         b1 = RelatingModel.objects.create()
@@ -1927,7 +1957,7 @@ class PolymorphicTests(TransactionTestCase):
         assert len(objects[0].non_poly) == 1
         assert len(objects[1].non_poly) == 1
 
-    def test_select_related_on_poly_classes_preserves_on_relations_annotations(self):
+    def test_prefetch_related_on_poly_classes_preserves_on_relations_annotations(self):
         b1 = RelatingModel.objects.create()
         b2 = RelatingModel.objects.create()
         b3 = RelatingModel.objects.create()
