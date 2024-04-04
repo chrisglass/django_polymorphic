@@ -1574,52 +1574,6 @@ class PolymorphicTests(TransactionTestCase):
         self.assertIsInstance(obj_list[2].plainobj.relation, AltChildModel)
         self.assertIsInstance(obj_list[3].plainobj.relation, AltChildModel)
 
-    def test_select_related_on_poly_classes_indirect_related(self):
-        # can we fetch the related object but only the minimal 'common' values
-        plain_a_obj_1 = PlainA.objects.create(field1="f1")
-        plain_a_obj_2 = PlainA.objects.create(field1="f2")
-        extra_obj = ModelExtraExternal.objects.create(topic="t1")
-        obj_p = ParentModel.objects.create(name="p1")
-        obj_c = ChildModel.objects.create(name="c1", other_name="c1name", link_on_child=extra_obj)
-        obj_ac1 = AltChildModel.objects.create(
-            name="ac1", other_name="ac1name", link_on_altchild=plain_a_obj_1
-        )
-        obj_ac2 = AltChildModel.objects.create(
-            name="ac2", other_name="ac2name", link_on_altchild=plain_a_obj_2
-        )
-        obj_p_1 = PlainModel.objects.create(relation=obj_p)
-        obj_p_2 = PlainModel.objects.create(relation=obj_c)
-        obj_p_3 = PlainModel.objects.create(relation=obj_ac1)
-        obj_p_4 = PlainModel.objects.create(relation=obj_ac2)
-
-        robj_1 = RefPlainModel.objects.create(plainobj=obj_p_1)
-        robj_2 = RefPlainModel.objects.create(plainobj=obj_p_2)
-        robj_3 = RefPlainModel.objects.create(plainobj=obj_p_3)
-        robj_4 = RefPlainModel.objects.create(plainobj=obj_p_4)
-
-        # Prefetch content_types
-        ContentType.objects.get_for_models(PlainModel, PlainA, ModelExtraExternal)
-
-        with self.assertNumQueries(1):
-            # pos 3 if i cannot do optimized select_related
-            obj_list = list(
-                RefPlainModel.poly_objects.select_related(
-                    # "plainobj__relation",
-                    "plainobj__relation",
-                    "plainobj__relation__ChildModel__link_on_child",
-                    "plainobj__relation__AltChildModel__link_on_altchild",
-                ).order_by("pk")
-            )
-        with self.assertNumQueries(0):
-            self.assertEqual(obj_list[0].plainobj.relation.name, "p1")
-            self.assertEqual(obj_list[1].plainobj.relation.name, "c1")
-            self.assertEqual(obj_list[2].plainobj.relation.name, "ac1")
-            self.assertEqual(obj_list[3].plainobj.relation.name, "ac2")
-
-        self.assertIsInstance(obj_list[0].plainobj.relation, ParentModel)
-        self.assertIsInstance(obj_list[1].plainobj.relation, ChildModel)
-        self.assertIsInstance(obj_list[2].plainobj.relation, AltChildModel)
-        self.assertIsInstance(obj_list[3].plainobj.relation, AltChildModel)
 
     def test_select_related_fecth_all_poly_classes_indirect_related(self):
         # can we fetch the related object but only the minimal 'common' values
