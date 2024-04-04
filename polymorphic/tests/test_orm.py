@@ -1439,8 +1439,8 @@ class PolymorphicTests(TransactionTestCase):
             obj_list = list(
                 PlainModel.objects.select_related(
                     "relation",
-                    "relation__ChildModel_",
-                    "relation__AltChildModel_",
+                    "relation__ChildModel",
+                    "relation__AltChildModel",
                 )
                 .order_by("pk")
                 .only(
