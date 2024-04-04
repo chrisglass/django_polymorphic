@@ -217,6 +217,7 @@ class RelatedPolymorphicPopulator:
                 if not isinstance(
                     rel_iter, (VanillaRelatedPopulator, RelatedPolymorphicPopulator)
                 ):
+                    # NOTE: We don't know how to handle this type of populator!
                     continue
                 if rel_iter.reverse and rel_iter.model_cls is cls:
                     if rel_iter.field.name in parents.keys():
@@ -492,6 +493,8 @@ class PolymorphicQuerySetMixin(QuerySet):
                 rel_model = submodels.get(part, None)
                 if model is not rel_model:
                     yield from self._convert_submodel_fields_parts(next_parts, model, rel_model)
+                else:
+                    raise
 
     def _convert_submodel_fields_parts(self, field_parts, model, rel_model):
         field_path = list(_create_base_path(model, rel_model).split("__"))
