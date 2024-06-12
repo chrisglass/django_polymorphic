@@ -345,6 +345,7 @@ class PolymorphicParentModelAdmin(admin.ModelAdmin):
                 "opts": opts,
                 "add": True,
                 "save_on_top": self.save_on_top,
+                **self.admin_site.each_context(request),
             }
         )
 
@@ -356,7 +357,7 @@ class PolymorphicParentModelAdmin(admin.ModelAdmin):
         ]
 
         request.current_app = self.admin_site.name
-        return TemplateResponse(request, templates, context)
+        return self.admin_site.admin_view(TemplateResponse)(request, templates, context)
 
     @property
     def change_list_template(self):
