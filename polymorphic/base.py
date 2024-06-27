@@ -73,7 +73,7 @@ class PolymorphicModelBase(ModelBase):
         # determine the name of the primary key field and store it into the class variable
         # polymorphic_primary_key_name (it is needed by query.py)
         for f in new_class._meta.fields:
-            if f.primary_key and type(f) != models.OneToOneField:
+            if f.primary_key and not isinstance(f, models.OneToOneField):
                 new_class.polymorphic_primary_key_name = f.name
                 break
 
