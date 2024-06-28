@@ -195,7 +195,8 @@ class PolymorphicModel(models.Model, metaclass=PolymorphicModelBase):
         def create_accessor_function_for_model(model, accessor_name):
             def accessor_function(self):
                 objects = getattr(model, "_base_objects", model.objects)
-                attr = objects.get(pk=self.pk)
+                using = kwargs.get("using", self._state.db or DEFAULT_DB_ALIAS)
+                attr = objects.using(using).get(pk=self.pk)
                 return attr
 
             return accessor_function
@@ -264,3 +265,4 @@ class PolymorphicModel(models.Model, metaclass=PolymorphicModelBase):
         add_all_super_models(self.__class__, result)
         add_all_sub_models(self.__class__, result)
         return result
+
