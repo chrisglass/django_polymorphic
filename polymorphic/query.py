@@ -402,7 +402,21 @@ class PolymorphicQuerySet(QuerySet):
                 **{(f"{pk_name}__in"): idlist}
             )
             # copy select related configuration to new qs
-            real_objects.query.select_related = self.query.select_related
+
+            if self.query.select_related is False:
+                real_objects.query.select_related = False
+            else:
+                concrete_model_name = real_concrete_class._meta.model_name
+                sub_model_names = set([m._meta.model_name for m in self.model.__subclasses__()])
+                sub_model_names.remove(concrete_model_name)
+
+                for sub_name in sub_model_names:
+                    self.query.select_related.pop(sub_name, None)
+
+                if concrete_model_name in self.query.select_related:
+                    real_objects.query.select_related = self.query.select_related[concrete_model_name]
+                else:
+                    real_objects.query.select_related = self.query.select_related
 
             # Copy deferred fields configuration to the new queryset
             deferred_loading_fields = []
