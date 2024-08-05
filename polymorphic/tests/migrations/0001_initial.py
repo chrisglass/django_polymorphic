@@ -1511,6 +1511,84 @@ class Migration(migrations.Migration):
             bases=("tests.proxybase",),
         ),
         migrations.CreateModel(
+            name="AliasProxyChild",
+            fields=[],
+            options={"proxy": True},
+            bases=("tests.proxybase",),
+        ),
+        migrations.CreateModel(
+            name="NonProxyChildAliasProxy",
+            fields=[],
+            options={"proxy": True},
+            bases=("tests.nonproxychild",),
+        ),
+        migrations.CreateModel(
+            name='AliasOfNonProxyChild',
+            fields=[
+            ],
+            options={
+                'proxy': True,
+                'indexes': [],
+                'constraints': [],
+            },
+            bases=('tests.nonproxychild',),
+        ),
+        migrations.CreateModel(
+            name='NonAliasNonProxyChild',
+            fields=[
+            ],
+            options={
+                'proxy': True,
+                'indexes': [],
+                'constraints': [],
+            },
+            bases=('tests.nonproxychild',),
+        ),
+        migrations.CreateModel(
+            name='TradProxyChild',
+            fields=[
+            ],
+            options={
+                'proxy': True,
+                'indexes': [],
+                'constraints': [],
+            },
+            bases=('tests.proxybase',),
+        ),
+        migrations.CreateModel(
+            name='TradProxyOnProxyChild',
+            fields=[
+            ],
+            options={
+                'proxy': True,
+                'indexes': [],
+                'constraints': [],
+            },
+            bases=('tests.proxychild',),
+        ),
+        migrations.CreateModel(
+            name='PolyTradProxyChild',
+            fields=[
+            ],
+            options={
+                'proxy': True,
+                'indexes': [],
+                'constraints': [],
+            },
+            bases=('tests.tradproxychild',),
+        ),
+        migrations.CreateModel(
+            name='ProxyChildAliasProxy',
+            fields=[
+            ],
+            options={
+                'proxy': True,
+                'indexes': [],
+                'constraints': [],
+            },
+            bases=('tests.tradproxychild',),
+        ),
+        migrations.CreateModel(
             name="ProxyModelBase",
             fields=[],
             options={"proxy": True},

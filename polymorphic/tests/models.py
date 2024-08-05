@@ -329,7 +329,7 @@ class UUIDPlainC(UUIDPlainB):
     field3 = models.CharField(max_length=10)
 
 
-# base -> proxy
+# base(poly) -> proxy
 
 
 class ProxyBase(PolymorphicModel):
@@ -345,7 +345,59 @@ class NonProxyChild(ProxyBase):
     name = models.CharField(max_length=10)
 
 
-# base -> proxy -> real models
+# A traditional django proxy models. ie proxy'ed class is alias class
+# but in django_polymorphic this is not so.
+#
+# We have model types :-
+# base(poly) / child(poly)   : A concrete polymorphic model 1+ fields
+# base(non ploy)             : A concrete django model 1+ fields
+# proxy(poly)                : A proxy model where it considered different
+#                            : from it superclasses
+# proxy(Traditional Django)  : A proxy model where it is an alias for the
+#                            : underline model
+
+
+# base(poly) -> proxy(poly) -> proxy(Traditional Django)
+class TradProxyOnProxyChild(ProxyChild):
+    class Meta:
+        proxy = True
+        polymorphic__proxy = True
+
+
+# base(poly) -> proxy(Traditional Django)
+class TradProxyChild(ProxyBase):
+    class Meta:
+        proxy = True
+        polymorphic__proxy = True
+
+# base(poly) -> proxy(Traditional Django) -> proxy(poly)
+# Not really helpful model as reduces to base(poly) -> proxy(poly)
+
+# base(poly) -> child(poly) -> proxy(Traditional Django)
+class AliasOfNonProxyChild(NonProxyChild):
+    class Meta:
+        proxy = True
+        polymorphic__proxy = True
+
+
+# base(poly) -> proxy(Traditional Django) -> proxy(poly)
+class ProxyChildAliasProxy(TradProxyChild):
+    class Meta:
+        proxy = True
+
+
+# base(poly) -> proxy(poly)
+class AliasProxyChild(ProxyBase):
+    class Meta:
+        proxy = True
+        polymorphic__proxy = True
+
+
+# base(poly) -> proxy(poly)
+class NonAliasNonProxyChild(NonProxyChild):
+    class Meta:
+        proxy = True
+        polymorphic__proxy = False
 
 
 class ProxiedBase(ShowFieldTypeAndContent, PolymorphicModel):

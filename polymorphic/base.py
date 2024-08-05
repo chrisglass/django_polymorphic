@@ -53,6 +53,12 @@ class PolymorphicModelBase(ModelBase):
     """
 
     def __new__(self, model_name, bases, attrs, **kwargs):
+        polymorphic__proxy = None
+        if "Meta" in attrs:
+            if hasattr(attrs["Meta"], "polymorphic__proxy"):
+                polymorphic__proxy = attrs["Meta"].polymorphic__proxy
+                del attrs["Meta"].polymorphic__proxy
+
         # Workaround compatibility issue with six.with_metaclass() and custom Django model metaclasses:
         if not attrs and model_name == "NewBase":
             return super().__new__(self, model_name, bases, attrs, **kwargs)
@@ -69,6 +75,11 @@ class PolymorphicModelBase(ModelBase):
 
         # for __init__ function of this class (monkeypatching inheritance accessors)
         new_class.polymorphic_super_sub_accessors_replaced = False
+
+        if polymorphic__proxy is not None:
+            new_class._meta.polymorphic__proxy = polymorphic__proxy
+        else:
+            new_class._meta.polymorphic__proxy = not new_class._meta.proxy
 
         # determine the name of the primary key field and store it into the class variable
         # polymorphic_primary_key_name (it is needed by query.py)

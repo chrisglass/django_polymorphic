@@ -28,7 +28,7 @@ class PolymorphicManager(models.Manager):
 
     def get_queryset(self):
         qs = self.queryset_class(self.model, using=self._db, hints=self._hints)
-        if self.model._meta.proxy:
+        if not self.model._meta.polymorphic__proxy:
             qs = qs.instance_of(self.model)
         return qs
 
