@@ -504,7 +504,6 @@ class NonPolymorphicParent(PolymorphicModel, Group):
 class BlueHeadDuck(Duck):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # This wasn't run before the fix:
         self.color = "blue"
 
 
