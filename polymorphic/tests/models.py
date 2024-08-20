@@ -496,3 +496,26 @@ class SubclassSelectorProxyConcreteModel(SubclassSelectorProxyModel):
 
 class NonPolymorphicParent(PolymorphicModel, Group):
     test = models.CharField(max_length=22, default="test_non_polymorphic_parent")
+
+
+# models for https://github.com/jazzband/django-polymorphic/issues/615
+
+
+class BlueHeadDuck(Duck):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.color = "blue"
+
+
+class HomeDuck(models.Model):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.home = "Duckburg"
+
+    class Meta:
+        abstract = True
+
+
+class PurpleHeadDuck(HomeDuck, BlueHeadDuck):
+    class Meta:
+        proxy = True

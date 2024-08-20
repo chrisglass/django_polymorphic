@@ -73,7 +73,7 @@ def transmogrify(cls, obj):
     """
     Upcast a class to a different type without asking questions.
     """
-    if "__init__" not in obj.__dict__:
+    if "__init__" not in obj.__class__.__dict__:
         # Just assign __class__ to a different value.
         new = obj
         new.__class__ = cls
