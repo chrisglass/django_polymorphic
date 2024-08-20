@@ -517,7 +517,6 @@ class HomeDuck(models.Model):
         abstract = True
 
 
-# Not sure if this will be necessary...
 class PurpleHeadDuck(HomeDuck, BlueHeadDuck):
     class Meta:
         proxy = True
