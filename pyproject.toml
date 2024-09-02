@@ -8,6 +8,7 @@ requires = [
 [tool.ruff]
 line-length = 99
 
+[tool.ruff.lint]
 extend-ignore = [
     "E501",
 ]
@@ -18,7 +19,7 @@ select = [
     "W",
 ]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "example/**" = [
     "F401",
     "F403",
