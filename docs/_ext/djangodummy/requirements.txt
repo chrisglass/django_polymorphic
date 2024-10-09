@@ -1,6 +1,6 @@
 # for readthedocs
 # Remaining requirements are picked up from setup.py
-Django == 3.2.25
+Django == 4.2.16
 django-extra-views == 0.14.0
 sphinxcontrib-django == 0.5.1
 sphinx_rtd_theme==2.0.0
