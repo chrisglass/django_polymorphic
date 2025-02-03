@@ -182,7 +182,9 @@ def translate_polymorphic_field_path(queryset_model, field_path):
 
         submodels = _get_all_sub_models(queryset_model)
         model = submodels.get(classname, None)
-        assert model, f"PolymorphicModel: model {classname} not found (not a subclass of {queryset_model.__name__})!"
+        assert model, (
+            f"PolymorphicModel: model {classname} not found (not a subclass of {queryset_model.__name__})!"
+        )
 
     basepath = _create_base_path(queryset_model, model)
 

@@ -219,9 +219,9 @@ class AdminTestCase(TestCase):
             else:
                 raise KeyError("Unknown field for errors in the TemplateResponse!")
 
-            assert (
-                response.status_code == 302
-            ), f"Form errors in calling {request_url}:\n{errors.as_text()}"
-        assert (
-            "/login/?next=" not in response["Location"]
-        ), f"Received login response for {request_url}"
+            assert response.status_code == 302, (
+                f"Form errors in calling {request_url}:\n{errors.as_text()}"
+            )
+        assert "/login/?next=" not in response["Location"], (
+            f"Received login response for {request_url}"
+        )

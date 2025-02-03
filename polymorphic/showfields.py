@@ -45,7 +45,7 @@ class ShowFieldBase:
             txt = str(content)
             max_len = self.polymorphic_showfield_max_field_width
             if len(txt) > max_len:
-                txt = f"{txt[:max_len - 2]}.."
+                txt = f"{txt[: max_len - 2]}.."
             out += f'"{txt}"'
         return out
 
