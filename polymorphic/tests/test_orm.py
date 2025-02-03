@@ -235,9 +235,9 @@ class PolymorphicTests(TransactionTestCase):
 
         objects_deferred = Model2A.objects.defer("field1").order_by("id")
 
-        assert (
-            "field1" not in objects_deferred[0].__dict__
-        ), "field1 was not deferred (using defer())"
+        assert "field1" not in objects_deferred[0].__dict__, (
+            "field1 was not deferred (using defer())"
+        )
 
         # Check that we have exactly one deferred field ('field1') per resulting object.
         for obj in objects_deferred:
@@ -247,12 +247,12 @@ class PolymorphicTests(TransactionTestCase):
 
         objects_only = Model2A.objects.only("pk", "polymorphic_ctype", "field1")
 
-        assert (
-            "field1" in objects_only[0].__dict__
-        ), 'qs.only("field1") was used, but field1 was incorrectly deferred'
-        assert (
-            "field1" in objects_only[3].__dict__
-        ), 'qs.only("field1") was used, but field1 was incorrectly deferred on a child model'
+        assert "field1" in objects_only[0].__dict__, (
+            'qs.only("field1") was used, but field1 was incorrectly deferred'
+        )
+        assert "field1" in objects_only[3].__dict__, (
+            'qs.only("field1") was used, but field1 was incorrectly deferred on a child model'
+        )
         assert "field4" not in objects_only[3].__dict__, "field4 was not deferred (using only())"
         assert "field1" not in objects_only[0].get_deferred_fields()
 
@@ -290,9 +290,9 @@ class PolymorphicTests(TransactionTestCase):
         self.create_model2abcd()
 
         objects_deferred_field4 = Model2A.objects.defer("Model2D___field4")
-        assert (
-            "field4" not in objects_deferred_field4[3].__dict__
-        ), "field4 was not deferred (using defer(), traversing inheritance)"
+        assert "field4" not in objects_deferred_field4[3].__dict__, (
+            "field4 was not deferred (using defer(), traversing inheritance)"
+        )
         assert objects_deferred_field4[0].__class__ == Model2A
         assert objects_deferred_field4[1].__class__ == Model2B
         assert objects_deferred_field4[2].__class__ == Model2C
